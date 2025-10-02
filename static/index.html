@@ -1,43 +1,4 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -92,14 +53,10 @@
         { username: 'Дмитрий', password: '12345678dd' }
       ];
 
-      // Загрузка данных с сервера
       useEffect(() => {
-        if (user) {
-          fetch(`/api/data/${user}`)
-            .then(response => {
-              console.log('Ответ сервера:', response);
-              return response.json();
-            })
+        const loadData = (username) => {
+          fetch(`/api/data/${username}`)
+            .then(response => response.json())
             .then(data => {
               console.log('Полученные данные:', data);
               setInventory(data.inventory.map((item, index) => ({ ...item, id: item.id || `inv_${Date.now()}_${index}` })));
@@ -112,29 +69,30 @@
               setManagers(allManagers.filter(m => m));
             })
             .catch(error => setError('Ошибка загрузки данных: ' + error.message));
+        };
+
+        if (user) {
+          loadData(user);
+        } else {
+          loadData('Леонид'); // Данные для просмотра без авторизации
         }
       }, [user]);
 
-      // Сохранение данных на сервер
+      useEffect(() => {
+        if (user && userRole === 'admin') {
+          saveData(user, { inventory, shipments });
+        }
+      }, [inventory, shipments, user]);
+
       const saveData = (username, data) => {
-        console.log('Отправка данных на сервер:', data);
         fetch(`/api/data/${username}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data)
         })
-        .then(response => {
-          console.log('Ответ сервера на POST:', response);
-          return response.json();
-        })
+        .then(response => response.json())
         .catch(error => setError('Ошибка сохранения данных: ' + error.message));
       };
-
-      useEffect(() => {
-        if (user) {
-          saveData(user, { inventory, shipments });
-        }
-      }, [inventory, shipments, user]);
 
       const handleLogin = (e) => {
         e.preventDefault();
@@ -143,9 +101,8 @@
           return;
         }
         const trimmedUserName = userName.trim();
-        console.log('Проверка входа:', { username: trimmedUserName, password });
         const isAdmin = admins.find(
-          (admin) => admin.username.toLowerCase() === trimmedUserName.toLowerCase() && admin.password === password
+          admin => admin.username.toLowerCase() === trimmedUserName.toLowerCase() && admin.password === password
         );
         if (password && !isAdmin) {
           setError('Неверный пароль для администратора');
@@ -166,7 +123,7 @@
         try {
           if (editItem) {
             setInventory(
-              inventory.map((item) =>
+              inventory.map(item =>
                 item.id === editItem.id
                   ? { ...newStock, quantity: Number(newStock.quantity), id: editItem.id }
                   : item
@@ -174,11 +131,11 @@
             );
           } else {
             const existing = inventory.find(
-              (item) => item.product === newStock.product && item.lot === newStock.lot
+              item => item.product === newStock.product && item.lot === newStock.lot
             );
             if (existing) {
               setInventory(
-                inventory.map((item) =>
+                inventory.map(item =>
                   item.product === newStock.product && item.lot === newStock.lot
                     ? { ...item, quantity: Number(item.quantity) + Number(newStock.quantity), expiryDate: newStock.expiryDate }
                     : item
@@ -207,21 +164,21 @@
         try {
           if (editItem) {
             setShipments(
-              shipments.map((item) =>
+              shipments.map(item =>
                 item.id === editItem.id
                   ? { ...newShipment, id: editItem.id }
                   : item
               )
             );
             const stock = inventory.find(
-              (item) => item.product === newShipment.product && item.lot === newShipment.lot
+              item => item.product === newShipment.product && item.lot === newShipment.lot
             );
             if (stock && Number(newShipment.quantity) > (stock.quantity + (editItem.quantity || 0))) {
               setError('Недостаточно продукции на складе!');
               return;
             }
             setInventory(
-              inventory.map((item) =>
+              inventory.map(item =>
                 item.product === newShipment.product && item.lot === newShipment.lot
                   ? { ...item, quantity: Number(item.quantity) + Number(editItem.quantity) - Number(newShipment.quantity) }
                   : item
@@ -229,7 +186,7 @@
             );
           } else {
             const stock = inventory.find(
-              (item) => item.product === newShipment.product && item.lot === newShipment.lot
+              item => item.product === newShipment.product && item.lot === newShipment.lot
             );
             if (!stock || stock.quantity < Number(newShipment.quantity)) {
               setError('Недостаточно продукции на складе!');
@@ -237,7 +194,7 @@
             }
             setShipments([...shipments, { ...newShipment, id: `ship_${Date.now()}_${shipments.length}` }]);
             setInventory(
-              inventory.map((item) =>
+              inventory.map(item =>
                 item.product === newShipment.product && item.lot === newShipment.lot
                   ? { ...item, quantity: Number(item.quantity) - Number(newShipment.quantity) }
                   : item
@@ -253,13 +210,13 @@
           if (!managers.includes(newShipment.manager) && newShipment.manager) {
             setManagers([...managers, newShipment.manager]);
           }
-          setNewShipment({ 
-            date: newShipment.date, 
-            product: newShipment.product, 
-            lot: '', 
-            client: newShipment.client, 
-            quantity: '', 
-            manager: newShipment.manager 
+          setNewShipment({
+            date: newShipment.date,
+            product: newShipment.product,
+            lot: '',
+            client: newShipment.client,
+            quantity: '',
+            manager: newShipment.manager
           });
           setEditItem(null);
         } catch (e) {
@@ -269,7 +226,6 @@
 
       const exportToExcel = (data, filename, headers) => {
         try {
-          console.log('Экспорт данных в Excel:', data);
           if (!data || data.length === 0) {
             setError('Нет данных для экспорта');
             return;
@@ -288,7 +244,6 @@
 
       const exportToWord = (data, filename) => {
         try {
-          console.log('Экспорт данных в Word:', data);
           if (!data || data.length === 0) {
             setError('Нет данных для экспорта');
             return;
@@ -315,8 +270,8 @@
       };
 
       const handleExportInventory = () => {
-        const filteredInventory = filterProduct === 'Все продукты' 
-          ? inventory 
+        const filteredInventory = filterProduct === 'Все продукты'
+          ? inventory
           : inventory.filter(item => item.product === filterProduct);
         const data = filteredInventory.map(item => ({
           Дата: item.date,
@@ -325,13 +280,13 @@
           Количество: item.quantity,
           'Срок годности': item.expiryDate
         }));
-        exportToExcel(data, `inventory_${user}.xlsx`, ['Дата', 'Продукция', '№ Лота', 'Количество', 'Срок годности']);
-        exportToWord(data, `inventory_${user}.docx`);
+        exportToExcel(data, `inventory_${user || 'guest'}.xlsx`, ['Дата', 'Продукция', '№ Лота', 'Количество', 'Срок годности']);
+        exportToWord(data, `inventory_${user || 'guest'}.docx`);
       };
 
       const handleExportShipments = () => {
-        const filteredShipments = filterProduct === 'Все продукты' 
-          ? shipments 
+        const filteredShipments = filterProduct === 'Все продукты'
+          ? shipments
           : shipments.filter(item => item.product === filterProduct);
         const data = filteredShipments.map(item => ({
           Дата: item.date,
@@ -341,16 +296,16 @@
           Количество: item.quantity,
           Менеджер: item.manager
         }));
-        exportToExcel(data, `shipments_${user}.xlsx`, ['Дата', 'Клиент', 'Продукция', '№ Лота', 'Количество', 'Менеджер']);
-        exportToWord(data, `shipments_${user}.docx`);
+        exportToExcel(data, `shipments_${user || 'guest'}.xlsx`, ['Дата', 'Клиент', 'Продукция', '№ Лота', 'Количество', 'Менеджер']);
+        exportToWord(data, `shipments_${user || 'guest'}.docx`);
       };
 
       const groupShipments = () => {
-        const filteredShipments = filterProduct === 'Все продукты' 
-          ? shipments 
+        const filteredShipments = filterProduct === 'Все продукты'
+          ? shipments
           : shipments.filter(item => item.product === filterProduct);
         const grouped = {};
-        filteredShipments.forEach((shipment) => {
+        filteredShipments.forEach(shipment => {
           const date = new Date(shipment.date);
           let key;
           if (groupBy === 'week') {
@@ -369,21 +324,21 @@
       };
 
       const groupInventoryByProduct = () => {
-        const filteredInventory = filterProduct === 'Все продукты' 
-          ? inventory 
+        const filteredInventory = filterProduct === 'Все продукты'
+          ? inventory
           : inventory.filter(item => item.product === filterProduct);
         const grouped = {};
-        filteredInventory.forEach((item) => {
+        filteredInventory.forEach(item => {
           if (!grouped[item.product]) grouped[item.product] = [];
           grouped[item.product].push(item);
         });
         return grouped;
       };
 
-      const availableLots = newShipment.product 
+      const availableLots = newShipment.product
         ? inventory
-            .filter((item) => item.product === newShipment.product && item.quantity > 0)
-            .map((item) => item.lot)
+            .filter(item => item.product === newShipment.product && item.quantity > 0)
+            .map(item => item.lot)
             .filter((lot, index, self) => self.indexOf(lot) === index)
         : [];
 
@@ -409,14 +364,11 @@
           try {
             if (isInventory) {
               setInventory(inventory.filter(i => i.id !== item.id));
-              console.log('Удален остаток:', item);
             } else {
-              const stock = inventory.find(
-                (i) => i.product === item.product && i.lot === item.lot
-              );
+              const stock = inventory.find(i => i.product === item.product && i.lot === item.lot);
               if (stock) {
                 setInventory(
-                  inventory.map((i) =>
+                  inventory.map(i =>
                     i.product === item.product && i.lot === item.lot
                       ? { ...i, quantity: Number(i.quantity) + Number(item.quantity) }
                       : i
@@ -424,11 +376,9 @@
                 );
               }
               setShipments(shipments.filter(s => s.id !== item.id));
-              console.log('Удалена отгрузка:', item);
             }
           } catch (e) {
             setError('Ошибка при удалении записи: ' + e.message);
-            console.error('Ошибка удаления:', e);
           }
         }
       };
@@ -448,14 +398,14 @@
               type: 'text',
               placeholder: 'Введите имя пользователя',
               value: userName,
-              onChange: (e) => setUserName(e.target.value),
+              onChange: e => setUserName(e.target.value),
               className: 'border p-2 rounded'
             }),
             React.createElement('input', {
               type: 'password',
               placeholder: 'Введите пароль (для админов)',
               value: password,
-              onChange: (e) => setPassword(e.target.value),
+              onChange: e => setPassword(e.target.value),
               className: 'border p-2 rounded'
             }),
             React.createElement(
@@ -514,7 +464,7 @@
             'select',
             {
               value: filterProduct,
-              onChange: (e) => setFilterProduct(e.target.value),
+              onChange: e => setFilterProduct(e.target.value),
               className: 'border p-2 rounded ml-4'
             },
             React.createElement('option', { value: 'Все продукты' }, 'Все продукты'),
@@ -540,7 +490,7 @@
                     React.createElement('input', {
                       type: 'date',
                       value: newStock.date,
-                      onChange: (e) => setNewStock({ ...newStock, date: e.target.value }),
+                      onChange: e => setNewStock({ ...newStock, date: e.target.value }),
                       className: 'border p-2 rounded'
                     }),
                     React.createElement('input', {
@@ -548,7 +498,7 @@
                       placeholder: 'Продукция',
                       value: newStock.product,
                       list: 'productsList',
-                      onChange: (e) => setNewStock({ ...newStock, product: e.target.value }),
+                      onChange: e => setNewStock({ ...newStock, product: e.target.value }),
                       className: 'border p-2 rounded'
                     }),
                     React.createElement(
@@ -562,21 +512,21 @@
                       type: 'text',
                       placeholder: '№ Лота',
                       value: newStock.lot,
-                      onChange: (e) => setNewStock({ ...newStock, lot: e.target.value }),
+                      onChange: e => setNewStock({ ...newStock, lot: e.target.value }),
                       className: 'border p-2 rounded'
                     }),
                     React.createElement('input', {
                       type: 'number',
                       placeholder: 'Количество',
                       value: newStock.quantity,
-                      onChange: (e) => setNewStock({ ...newStock, quantity: e.target.value }),
+                      onChange: e => setNewStock({ ...newStock, quantity: e.target.value }),
                       className: 'border p-2 rounded'
                     }),
                     React.createElement('label', { className: 'text-gray-600 mr-2' }, 'Выберите срок годности:'),
                     React.createElement('input', {
                       type: 'date',
                       value: newStock.expiryDate,
-                      onChange: (e) => setNewStock({ ...newStock, expiryDate: e.target.value }),
+                      onChange: e => setNewStock({ ...newStock, expiryDate: e.target.value }),
                       className: 'border p-2 rounded'
                     }),
                     React.createElement(
@@ -599,7 +549,7 @@
               'div',
               null,
               React.createElement('h2', { className: 'text-xl font-semibold mb-2' }, 'Остатки на складе'),
-              Object.keys(groupedInventory).map((product) =>
+              Object.keys(groupedInventory).map(product =>
                 React.createElement(
                   'div',
                   { key: product, className: 'mb-4' },
@@ -675,7 +625,7 @@
                     React.createElement('input', {
                       type: 'date',
                       value: newShipment.date,
-                      onChange: (e) => setNewShipment({ ...newShipment, date: e.target.value }),
+                      onChange: e => setNewShipment({ ...newShipment, date: e.target.value }),
                       className: 'border p-2 rounded'
                     }),
                     React.createElement('input', {
@@ -683,7 +633,7 @@
                       placeholder: 'Клиент',
                       value: newShipment.client,
                       list: 'clientsList',
-                      onChange: (e) => setNewShipment({ ...newShipment, client: e.target.value }),
+                      onChange: e => setNewShipment({ ...newShipment, client: e.target.value }),
                       className: 'border p-2 rounded'
                     }),
                     React.createElement(
@@ -698,7 +648,7 @@
                       placeholder: 'Продукция',
                       value: newShipment.product,
                       list: 'productsList',
-                      onChange: (e) => setNewShipment({ ...newShipment, product: e.target.value, lot: '' }),
+                      onChange: e => setNewShipment({ ...newShipment, product: e.target.value, lot: '' }),
                       className: 'border p-2 rounded'
                     }),
                     React.createElement(
@@ -713,7 +663,7 @@
                       placeholder: '№ Лота',
                       value: newShipment.lot,
                       list: 'lotsList',
-                      onChange: (e) => setNewShipment({ ...newShipment, lot: e.target.value }),
+                      onChange: e => setNewShipment({ ...newShipment, lot: e.target.value }),
                       className: 'border p-2 rounded',
                       disabled: !newShipment.product
                     }),
@@ -728,7 +678,7 @@
                       type: 'number',
                       placeholder: 'Количество',
                       value: newShipment.quantity,
-                      onChange: (e) => setNewShipment({ ...newShipment, quantity: e.target.value }),
+                      onChange: e => setNewShipment({ ...newShipment, quantity: e.target.value }),
                       className: 'border p-2 rounded'
                     }),
                     React.createElement('input', {
@@ -736,7 +686,7 @@
                       placeholder: 'Менеджер',
                       value: newShipment.manager,
                       list: 'managersList',
-                      onChange: (e) => setNewShipment({ ...newShipment, manager: e.target.value }),
+                      onChange: e => setNewShipment({ ...newShipment, manager: e.target.value }),
                       className: 'border p-2 rounded'
                     }),
                     React.createElement(
@@ -774,7 +724,7 @@
                   'select',
                   {
                     value: groupBy,
-                    onChange: (e) => setGroupBy(e.target.value),
+                    onChange: e => setGroupBy(e.target.value),
                     className: 'border p-2 rounded'
                   },
                   React.createElement('option', { value: 'week' }, 'Неделя'),
@@ -782,7 +732,7 @@
                   React.createElement('option', { value: 'quarter' }, 'Квартал')
                 )
               ),
-              Object.keys(groupedShipments).map((key) =>
+              Object.keys(groupedShipments).map(key =>
                 React.createElement(
                   'div',
                   { key: key, className: 'mb-4' },
