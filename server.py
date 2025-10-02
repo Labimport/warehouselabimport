@@ -1,56 +1,56 @@
 from flask import Flask, request, jsonify, render_template
-     from flask_cors import CORS
-     from flask_sqlalchemy import SQLAlchemy
-     import os
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+import os
 
-     app = Flask(__name__, static_folder='static', template_folder='templates')
-     CORS(app)
+app = Flask(__name__, static_folder='static', template_folder='templates')
+CORS(app)
 
-     # Настройка базы данных
-     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
-     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-     db = SQLAlchemy(app)
+# Настройка базы данных
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
-     # Модель данных
-     class UserData(db.Model):
-         username = db.Column(db.String(80), primary_key=True)
-         inventory = db.Column(db.JSON, nullable=False, default=[])
-         shipments = db.Column(db.JSON, nullable=False, default=[])
+# Модель данных
+class UserData(db.Model):
+    username = db.Column(db.String(80), primary_key=True)
+    inventory = db.Column(db.JSON, nullable=False, default=[])
+    shipments = db.Column(db.JSON, nullable=False, default=[])
 
-     # Создание таблиц
-     with app.app_context():
-         db.create_all()
+# Создание таблиц
+with app.app_context():
+    db.create_all()
 
-     # Регистрация маршрута для главной страницы
-     @app.route('/')
-     def index():
-         return app.send_static_file('index.html')
+# Регистрация маршрута для главной страницы
+@app.route('/')
+def index():
+    return app.send_static_file('index.html')
 
-     # Эндпоинт для получения данных пользователя
-     @app.route('/api/data/<username>', methods=['GET'])
-     def get_data(username):
-         user_data = UserData.query.filter_by(username=username).first()
-         if user_data:
-             return jsonify({
-                 'inventory': user_data.inventory,
-                 'shipments': user_data.shipments
-             })
-         return jsonify({'inventory': [], 'shipments': []})
+# Эндпоинт для получения данных пользователя
+@app.route('/api/data/<username>', methods=['GET'])
+def get_data(username):
+    user_data = UserData.query.filter_by(username=username).first()
+    if user_data:
+        return jsonify({
+            'inventory': user_data.inventory,
+            'shipments': user_data.shipments
+        })
+    return jsonify({'inventory': [], 'shipments': []})
 
-     # Эндпоинт для сохранения данных пользователя
-     @app.route('/api/data/<username>', methods=['POST'])
-     def save_data(username):
-         user_data = UserData.query.filter_by(username=username).first()
-         new_data = request.get_json()
-         if user_data:
-             user_data.inventory = new_data.get('inventory', [])
-             user_data.shipments = new_data.get('shipments', [])
-         else:
-             user_data = UserData(username=username, inventory=new_data.get('inventory', []), shipments=new_data.get('shipments', []))
-             db.session.add(user_data)
-         db.session.commit()
-         return jsonify({'status': 'success'})
+# Эндпоинт для сохранения данных пользователя
+@app.route('/api/data/<username>', methods=['POST'])
+def save_data(username):
+    user_data = UserData.query.filter_by(username=username).first()
+    new_data = request.get_json()
+    if user_data:
+        user_data.inventory = new_data.get('inventory', [])
+        user_data.shipments = new_data.get('shipments', [])
+    else:
+        user_data = UserData(username=username, inventory=new_data.get('inventory', []), shipments=new_data.get('shipments', []))
+        db.session.add(user_data)
+    db.session.commit()
+    return jsonify({'status': 'success'})
 
-     if __name__ == '__main__':
-         port = int(os.environ.get('PORT', 8080))
-         app.run(host='0.0.0.0', port=port)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
