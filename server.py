@@ -9,8 +9,8 @@ CORS(app)
 # Настройка базы данных
 db_url = os.environ.get('DATABASE_URL')
 if not db_url:
-    print("WARNING: DATABASE_URL не настроен, используется пустая база данных")
-app.config['SQLALCHEMY_DATABASE_URI'] = db_url or 'sqlite:///:memory:'  # Fallback на SQLite для теста
+    print("WARNING: DATABASE_URL не настроен, используется пустая база данных в памяти (SQLite)")
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url or 'sqlite:///:memory:'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -24,17 +24,41 @@ class UserData(db.Model):
 
     __table_args__ = (db.UniqueConstraint('username', 'company', name='uix_username_company'),)
 
-# Создание таблиц (с обработкой ошибок)
+# Создание таблиц (с обработкой ошибок и добавлением тестовых данных)
 try:
     with app.app_context():
         db.create_all()
         print("Таблицы успешно созданы или уже существуют")
+        # Проверка и добавление тестовых данных
+        test_user = UserData.query.filter_by(username='Леонид', company='БТТ').first()
+        if not test_user:
+            test_user = UserData(
+                username='Леонид',
+                company='БТТ',
+                inventory=[{'date': '2025-10-01', 'product': 'Продукт1', 'lot': 'A1', 'quantity': 100, 'expiryDate': '2026-10-01'}],
+                shipments=[{'date': '2025-10-02', 'product': 'Продукт1', 'lot': 'A1', 'client': 'Клиент1', 'quantity': 50, 'manager': 'Менеджер1'}]
+            )
+            db.session.add(test_user)
+            db.session.commit()
+            print("Тестовые данные добавлены для Леонид (БТТ)")
+        test_user_li = UserData.query.filter_by(username='Леонид', company='ЛИ').first()
+        if not test_user_li:
+            test_user_li = UserData(
+                username='Леонид',
+                company='ЛИ',
+                inventory=[{'date': '2025-10-01', 'product': 'Продукт2', 'lot': 'B1', 'quantity': 200, 'expiryDate': '2026-10-01'}],
+                shipments=[{'date': '2025-10-02', 'product': 'Продукт2', 'lot': 'B1', 'client': 'Клиент2', 'quantity': 100, 'manager': 'Менеджер2'}]
+            )
+            db.session.add(test_user_li)
+            db.session.commit()
+            print("Тестовые данные добавлены для Леонид (ЛИ)")
 except Exception as e:
-    print(f"Ошибка создания таблиц: {e}")
+    print(f"Ошибка создания таблиц или добавления данных: {e}")
 
 # Регистрация маршрута для главной страницы
 @app.route('/')
 def index():
+    print("Получен запрос на главную страницу")
     return app.send_static_file('index.html')
 
 # Эндпоинт для получения данных пользователя по компании
