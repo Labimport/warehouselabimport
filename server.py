@@ -11,11 +11,15 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# Модель данных
+# Модель данных с полем company
 class UserData(db.Model):
-    username = db.Column(db.String(80), primary_key=True)
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), nullable=False)
+    company = db.Column(db.String(10), nullable=False)
     inventory = db.Column(db.JSON, nullable=False, default=[])
     shipments = db.Column(db.JSON, nullable=False, default=[])
+
+    __table_args__ = (db.UniqueConstraint('username', 'company', name='uix_username_company'),)
 
 # Создание таблиц
 with app.app_context():
@@ -26,10 +30,10 @@ with app.app_context():
 def index():
     return app.send_static_file('index.html')
 
-# Эндпоинт для получения данных пользователя
-@app.route('/api/data/<username>', methods=['GET'])
-def get_data(username):
-    user_data = UserData.query.filter_by(username=username).first()
+# Эндпоинт для получения данных пользователя по компании
+@app.route('/api/data/<username>/<company>', methods=['GET'])
+def get_data(username, company):
+    user_data = UserData.query.filter_by(username=username, company=company).first()
     if user_data:
         return jsonify({
             'inventory': user_data.inventory,
@@ -37,19 +41,25 @@ def get_data(username):
         })
     return jsonify({'inventory': [], 'shipments': []})
 
-# Эндпоинт для сохранения данных пользователя
-@app.route('/api/data/<username>', methods=['POST'])
-def save_data(username):
-    user_data = UserData.query.filter_by(username=username).first()
+# Эндпоинт для сохранения данных пользователя по компании
+@app.route('/api/data/<username>/<company>', methods=['POST'])
+def save_data(username, company):
+    user_data = UserData.query.filter_by(username=username, company=company).first()
     new_data = request.get_json()
     if user_data:
         user_data.inventory = new_data.get('inventory', [])
         user_data.shipments = new_data.get('shipments', [])
     else:
-        user_data = UserData(username=username, inventory=new_data.get('inventory', []), shipments=new_data.get('shipments', []))
+        user_data = UserData(username=username, company=company, inventory=new_data.get('inventory', []), shipments=new_data.get('shipments', []))
         db.session.add(user_data)
     db.session.commit()
     return jsonify({'status': 'success'})
+
+# Эндпоинт для получения всех компаний (для просмотра без авторизации)
+@app.route('/api/companies', methods=['GET'])
+def get_companies():
+    companies = db.session.query(UserData.company).distinct().all()
+    return jsonify([c[0] for c in companies])
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
