@@ -7,7 +7,10 @@ app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
 
 # Настройка базы данных
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+db_url = os.environ.get('DATABASE_URL')
+if not db_url:
+    print("WARNING: DATABASE_URL не настроен, используется пустая база данных")
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url or 'sqlite:///:memory:'  # Fallback на SQLite для теста
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -25,6 +28,7 @@ class UserData(db.Model):
 try:
     with app.app_context():
         db.create_all()
+        print("Таблицы успешно созданы или уже существуют")
 except Exception as e:
     print(f"Ошибка создания таблиц: {e}")
 
@@ -36,21 +40,25 @@ def index():
 # Эндпоинт для получения данных пользователя по компании
 @app.route('/api/data/<username>/<company>', methods=['GET'])
 def get_data(username, company):
+    print(f"Получен запрос GET /api/data/{username}/{company}")
     try:
         user_data = UserData.query.filter_by(username=username, company=company).first()
         if user_data:
+            print(f"Найдены данные для {username}, {company}: {user_data.inventory}, {user_data.shipments}")
             return jsonify({
                 'inventory': user_data.inventory or [],
                 'shipments': user_data.shipments or []
             })
+        print(f"Нет данных для {username}, {company}, возвращен пустой JSON")
         return jsonify({'inventory': [], 'shipments': []})
     except Exception as e:
-        print(f"Ошибка получения данных: {e}")
-        return jsonify({'inventory': [], 'shipments': []})
+        print(f"Ошибка обработки запроса: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # Эндпоинт для сохранения данных пользователя по компании
 @app.route('/api/data/<username>/<company>', methods=['POST'])
 def save_data(username, company):
+    print(f"Получен запрос POST /api/data/{username}/{company}")
     try:
         user_data = UserData.query.filter_by(username=username, company=company).first()
         new_data = request.get_json() or {}
@@ -61,21 +69,26 @@ def save_data(username, company):
             user_data = UserData(username=username, company=company, inventory=new_data.get('inventory', []), shipments=new_data.get('shipments', []))
             db.session.add(user_data)
         db.session.commit()
+        print(f"Данные успешно сохранены для {username}, {company}")
         return jsonify({'status': 'success'})
     except Exception as e:
         print(f"Ошибка сохранения данных: {e}")
-        return jsonify({'status': 'error'}), 500
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# Эндпоинт для получения всех компаний (для просмотра без авторизации)
+# Эндпоинт для получения всех компаний
 @app.route('/api/companies', methods=['GET'])
 def get_companies():
+    print("Получен запрос GET /api/companies")
     try:
         companies = db.session.query(UserData.company).distinct().all()
-        return jsonify([c[0] for c in companies])
+        result = [c[0] for c in companies]
+        print(f"Возвращены компании: {result}")
+        return jsonify(result)
     except Exception as e:
         print(f"Ошибка получения компаний: {e}")
         return jsonify([])
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
+    print(f"Сервер запущен на порту {port}")
     app.run(host='0.0.0.0', port=port)
