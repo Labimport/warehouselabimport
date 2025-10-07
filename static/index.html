@@ -29,14 +29,16 @@
         lot: '',
         client: '',
         quantity: '',
-        manager: ''
+        manager: '',
+        company: 'БТТ' // Установим компанию по умолчанию
       });
       const [newStock, setNewStock] = useState({
         date: new Date().toISOString().split('T')[0],
         product: '',
         lot: '',
         quantity: '',
-        expiryDate: ''
+        expiryDate: '',
+        company: 'БТТ' // Установим компанию по умолчанию
       });
       const [activeTab, setActiveTab] = useState('inventory');
       const [products, setProducts] = useState([]);
@@ -49,8 +51,6 @@
       const [editItem, setEditItem] = useState(null);
       const [company, setCompany] = useState('БТТ');
       const [companies, setCompanies] = useState([]);
-      const [startDate, setStartDate] = useState('');
-      const [endDate, setEndDate] = useState('');
 
       const admins = [
         { username: 'Леонид', password: '12345678lm' },
@@ -77,11 +77,14 @@
             })
             .then(data => {
               console.log('Данные загружены для компании:', company, data);
-              setInventory(data.inventory.map((item, index) => ({ ...item, id: item.id || `inv_${Date.now()}_${index}` })) || []);
-              setShipments(data.shipments.map((item, index) => ({ ...item, id: item.id || `ship_${Date.now()}_${index}` })) || []);
-              const allProducts = [...new Set([...data.inventory.map(i => i.product), ...data.shipments.map(s => s.product)])];
-              const allClients = [...new Set(data.shipments.map(s => s.client))];
-              const allManagers = [...new Set(data.shipments.map(s => s.manager))];
+              // Фильтруем данные по компании, если сервер не сделал это
+              const filteredInventory = data.inventory.map(item => ({ ...item, company: item.company || company, id: item.id || `inv_${Date.now()}_${index}` })) || [];
+              const filteredShipments = data.shipments.map(item => ({ ...item, company: item.company || company, id: item.id || `ship_${Date.now()}_${index}` })) || [];
+              setInventory(filteredInventory.filter(item => item.company === company));
+              setShipments(filteredShipments.filter(item => item.company === company));
+              const allProducts = [...new Set([...filteredInventory.map(i => i.product), ...filteredShipments.map(s => s.product)])];
+              const allClients = [...new Set(filteredShipments.map(s => s.client))];
+              const allManagers = [...new Set(filteredShipments.map(s => s.manager))];
               setProducts(allProducts.filter(p => p));
               setClients(allClients.filter(c => c));
               setManagers(allManagers.filter(m => m));
@@ -146,19 +149,19 @@
         }
         try {
           if (editItem) {
-            setInventory(inventory.map(item => item.id === editItem.id ? { ...newStock, quantity: Number(newStock.quantity), id: editItem.id } : item));
+            setInventory(inventory.map(item => item.id === editItem.id ? { ...newStock, quantity: Number(newStock.quantity), company, id: editItem.id } : item));
           } else {
-            const existing = inventory.find(item => item.product === newStock.product && item.lot === newStock.lot);
+            const existing = inventory.find(item => item.product === newStock.product && item.lot === newStock.lot && item.company === company);
             if (existing) {
-              setInventory(inventory.map(item => item.product === newStock.product && item.lot === newStock.lot
+              setInventory(inventory.map(item => item.product === newStock.product && item.lot === newStock.lot && item.company === company
                 ? { ...item, quantity: Number(item.quantity) + Number(newStock.quantity), expiryDate: newStock.expiryDate }
                 : item));
             } else {
-              setInventory([...inventory, { ...newStock, quantity: Number(newStock.quantity), id: `inv_${Date.now()}_${inventory.length}` }]);
+              setInventory([...inventory, { ...newStock, quantity: Number(newStock.quantity), company, id: `inv_${Date.now()}_${inventory.length}` }]);
             }
           }
           if (!products.includes(newStock.product) && newStock.product) setProducts([...products, newStock.product]);
-          setNewStock({ date: newStock.date, product: '', lot: '', quantity: '', expiryDate: '' });
+          setNewStock({ date: newStock.date, product: '', lot: '', quantity: '', expiryDate: '', company });
           setEditItem(null);
           setError('');
         } catch (e) {
@@ -174,30 +177,30 @@
         }
         try {
           if (editItem) {
-            setShipments(shipments.map(item => item.id === editItem.id ? { ...newShipment, id: editItem.id } : item));
-            const stock = inventory.find(item => item.product === newShipment.product && item.lot === newShipment.lot);
+            setShipments(shipments.map(item => item.id === editItem.id ? { ...newShipment, company, id: editItem.id } : item));
+            const stock = inventory.find(item => item.product === newShipment.product && item.lot === newShipment.lot && item.company === company);
             if (stock && Number(newShipment.quantity) > (stock.quantity + (editItem.quantity || 0))) {
               setError('Недостаточно продукции на складе!');
               return;
             }
-            setInventory(inventory.map(item => item.product === newShipment.product && item.lot === newShipment.lot
+            setInventory(inventory.map(item => item.product === newShipment.product && item.lot === newShipment.lot && item.company === company
               ? { ...item, quantity: Number(item.quantity) + Number(editItem.quantity) - Number(newShipment.quantity) }
               : item));
           } else {
-            const stock = inventory.find(item => item.product === newShipment.product && item.lot === newShipment.lot);
+            const stock = inventory.find(item => item.product === newShipment.product && item.lot === newShipment.lot && item.company === company);
             if (!stock || stock.quantity < Number(newShipment.quantity)) {
               setError('Недостаточно продукции на складе!');
               return;
             }
-            setShipments([...shipments, { ...newShipment, id: `ship_${Date.now()}_${shipments.length}` }]);
-            setInventory(inventory.map(item => item.product === newShipment.product && item.lot === newShipment.lot
+            setShipments([...shipments, { ...newShipment, company, id: `ship_${Date.now()}_${shipments.length}` }]);
+            setInventory(inventory.map(item => item.product === newShipment.product && item.lot === newShipment.lot && item.company === company
               ? { ...item, quantity: Number(item.quantity) - Number(newShipment.quantity) }
               : item));
           }
           if (!products.includes(newShipment.product) && newShipment.product) setProducts([...products, newShipment.product]);
           if (!clients.includes(newShipment.client) && newShipment.client) setClients([...clients, newShipment.client]);
           if (!managers.includes(newShipment.manager) && newShipment.manager) setManagers([...managers, newShipment.manager]);
-          setNewShipment({ date: newShipment.date, product: newShipment.product, lot: '', client: newShipment.client, quantity: '', manager: newShipment.manager });
+          setNewShipment({ date: newShipment.date, product: newShipment.product, lot: '', client: newShipment.client, quantity: '', manager: newShipment.manager, company });
           setEditItem(null);
           setError('');
         } catch (e) {
@@ -240,7 +243,7 @@
       };
 
       const handleExportInventory = () => {
-        const filteredInventory = filterProduct === 'Все продукты' ? inventory : inventory.filter(item => item.product === filterProduct);
+        const filteredInventory = inventory.filter(item => item.company === company && (filterProduct === 'Все продукты' || item.product === filterProduct));
         const data = filteredInventory.map(item => ({
           Дата: item.date,
           Продукция: item.product,
@@ -254,6 +257,7 @@
 
       const handleExportShipments = () => {
         const filteredShipments = shipments
+          .filter(item => item.company === company)
           .filter(item => filterProduct === 'Все продукты' || item.product === filterProduct)
           .filter(item => filterClient === 'Все клиенты' || item.client === filterClient)
           .filter(item => filterManager === 'Все менеджеры' || item.manager === filterManager)
@@ -278,7 +282,7 @@
       };
 
       const availableLots = newShipment.product
-        ? inventory.filter(item => item.product === newShipment.product && item.quantity > 0).map(item => item.lot).filter((lot, index, self) => self.indexOf(lot) === index)
+        ? inventory.filter(item => item.product === newShipment.product && item.quantity > 0 && item.company === company).map(item => item.lot).filter((lot, index, self) => self.indexOf(lot) === index)
         : [];
 
       const handleEdit = (item) => {
@@ -300,8 +304,8 @@
           try {
             if (isInventory) setInventory(inventory.filter(i => i.id !== item.id));
             else {
-              const stock = inventory.find(i => i.product === item.product && i.lot === item.lot);
-              if (stock) setInventory(inventory.map(i => i.product === item.product && i.lot === item.lot
+              const stock = inventory.find(i => i.product === item.product && i.lot === item.lot && i.company === company);
+              if (stock) setInventory(inventory.map(i => i.product === item.product && i.lot === item.lot && i.company === company
                 ? { ...i, quantity: Number(i.quantity) + Number(item.quantity) }
                 : i));
               setShipments(shipments.filter(s => s.id !== item.id));
@@ -314,7 +318,7 @@
       };
 
       const groupInventoryByProduct = () => {
-        const filteredInventory = filterProduct === 'Все продукты' ? inventory : inventory.filter(item => item.product === filterProduct);
+        const filteredInventory = inventory.filter(item => item.company === company && (filterProduct === 'Все продукты' || item.product === filterProduct));
         const grouped = {};
         filteredInventory.forEach(item => {
           if (!grouped[item.product]) grouped[item.product] = [];
@@ -670,6 +674,7 @@
               'tbody',
               null,
               shipments
+                .filter(item => item.company === company)
                 .filter(item => filterProduct === 'Все продукты' || item.product === filterProduct)
                 .filter(item => filterClient === 'Все клиенты' || item.client === filterClient)
                 .filter(item => filterManager === 'Все менеджеры' || item.manager === filterManager)
@@ -709,16 +714,6 @@
           )
         )
       );
-    };
-
-    const groupInventoryByProduct = () => {
-      const filteredInventory = filterProduct === 'Все продукты' ? inventory : inventory.filter(item => item.product === filterProduct);
-      const grouped = {};
-      filteredInventory.forEach(item => {
-        if (!grouped[item.product]) grouped[item.product] = [];
-        grouped[item.product].push(item);
-      });
-      return grouped;
     };
 
     try {
