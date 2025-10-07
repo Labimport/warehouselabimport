@@ -64,7 +64,7 @@
         fetch('/api/companies')
           .then(response => response.json())
           .then(data => {
-            console.log('Компании:', data);
+            console.log('Компании загружены:', data);
             setCompanies(data || ['БТТ', 'ЛИ']);
           })
           .catch(error => setError('Ошибка загрузки компаний: ' + error.message));
@@ -72,13 +72,14 @@
 
       useEffect(() => {
         const loadData = (username, company) => {
+          console.log(`Загрузка данных для пользователя: ${username}, компания: ${company}`);
           fetch(`/api/data/${username}/${company}`)
             .then(response => {
               if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
               return response.json();
             })
             .then(data => {
-              console.log('Данные загружены для компании:', company, data);
+              console.log('Полученные данные с сервера:', data);
               // Добавляем поле company, если его нет, и фильтруем
               const filteredInventory = (data.inventory || []).map((item, index) => ({
                 ...item,
@@ -90,6 +91,8 @@
                 company: item.company || company,
                 id: item.id || `ship_${Date.now()}_${index}`
               })).filter(item => item.company === company);
+              console.log('Отфильтрованный инвентарь:', filteredInventory);
+              console.log('Отфильтрованные отгрузки:', filteredShipments);
               setInventory(filteredInventory);
               setShipments(filteredShipments);
               const allProducts = [...new Set([...filteredInventory.map(i => i.product), ...filteredShipments.map(s => s.product)])];
@@ -99,15 +102,16 @@
               setClients(allClients.filter(c => c));
               setManagers(allManagers.filter(m => m));
             })
-            .catch(error => setError('Ошибка загрузки данных: ' + error.message));
+            .catch(error => {
+              console.error('Ошибка загрузки данных:', error);
+              setError('Ошибка загрузки данных: ' + error.message);
+            });
         };
 
         if (user) {
           loadData(user, company);
-          console.log('Пользователь авторизован:', user, 'Компания:', company);
         } else {
           loadData('Леонид', company);
-          console.log('Гостевой доступ для:', 'Леонид', 'Компания:', company);
         }
       }, [user, company]);
 
@@ -423,8 +427,9 @@
             {
               value: company,
               onChange: (e) => {
-                setCompany(e.target.value);
-                console.log('Смена компании на:', e.target.value);
+                const newCompany = e.target.value;
+                console.log('Смена компании на:', newCompany);
+                setCompany(newCompany);
               },
               className: 'border p-2 rounded ml-2'
             },
