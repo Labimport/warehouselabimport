@@ -1,9 +1,21 @@
+import os
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+import urllib.parse
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://user:password@localhost:5432/warehouse'
+
+# Извлечение DATABASE_URL и настройка для SQLAlchemy
+db_url = os.environ.get('DATABASE_URL')
+if db_url and db_url.startswith('postgres://'):
+    db_url = db_url.replace('postgres://', 'postgresql://', 1)
+    # Декодирование пароля, если он закодирован
+    result = urllib.parse.urlparse(db_url)
+    username = result.username
+    password = result.password
+    db_url = f"postgresql://{username}:{password}@{result.hostname}:{result.port}/{result.path[1:]}?sslmode=require"
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url or 'postgresql://user:password@localhost:5432/warehouse'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 CORS(app)
 db = SQLAlchemy(app)
@@ -17,6 +29,7 @@ class Inventory(db.Model):
     quantity = db.Column(db.Integer)
     expiryDate = db.Column(db.String)
     company = db.Column(db.String)
+    username = db.Column(db.String)
 
 class Shipment(db.Model):
     id = db.Column(db.String, primary_key=True)
@@ -27,10 +40,15 @@ class Shipment(db.Model):
     quantity = db.Column(db.Integer)
     manager = db.Column(db.String)
     company = db.Column(db.String)
+    username = db.Column(db.String)
 
-# Создание таблиц
-with app.app_context():
-    db.create_all()
+# Функция для инициализации таблиц (вызывается при первом запросе)
+def init_db():
+    with app.app_context():
+        db.create_all()
+
+# Выполняем инициализацию при первом запуске
+init_db()
 
 @app.route('/')
 def home():
