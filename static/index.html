@@ -76,7 +76,7 @@
               return response.json();
             })
             .then(data => {
-              console.log('Данные загружены:', data);
+              console.log('Данные загружены для компании:', company, data);
               setInventory(data.inventory.map((item, index) => ({ ...item, id: item.id || `inv_${Date.now()}_${index}` })) || []);
               setShipments(data.shipments.map((item, index) => ({ ...item, id: item.id || `ship_${Date.now()}_${index}` })) || []);
               const allProducts = [...new Set([...data.inventory.map(i => i.product), ...data.shipments.map(s => s.product)])];
@@ -91,10 +91,10 @@
 
         if (user) {
           loadData(user, company);
-          console.log('Пользователь авторизован:', user);
+          console.log('Пользователь авторизован:', user, 'Компания:', company);
         } else {
           loadData('Леонид', company);
-          console.log('Гостевой доступ для:', 'Леонид');
+          console.log('Гостевой доступ для:', 'Леонид', 'Компания:', company);
         }
       }, [user, company]);
 
@@ -248,8 +248,8 @@
           Количество: item.quantity,
           'Срок годности': item.expiryDate
         }));
-        exportToExcel(data, `inventory_${user || 'guest'}.xlsx`, ['Дата', 'Продукция', '№ Лота', 'Количество', 'Срок годности']);
-        exportToWord(data, `inventory_${user || 'guest'}.docx`);
+        exportToExcel(data, `inventory_${user || 'guest'}_${company}.xlsx`, ['Дата', 'Продукция', '№ Лота', 'Количество', 'Срок годности']);
+        exportToWord(data, `inventory_${user || 'guest'}_${company}.docx`);
       };
 
       const handleExportShipments = () => {
@@ -273,8 +273,8 @@
           Количество: item.quantity,
           Менеджер: item.manager
         }));
-        exportToExcel(data, `shipments_${user || 'guest'}.xlsx`, ['Дата', 'Клиент', 'Продукция', '№ Лота', 'Количество', 'Менеджер']);
-        exportToWord(data, `shipments_${user || 'guest'}.docx`);
+        exportToExcel(data, `shipments_${user || 'guest'}_${company}.xlsx`, ['Дата', 'Клиент', 'Продукция', '№ Лота', 'Количество', 'Менеджер']);
+        exportToWord(data, `shipments_${user || 'guest'}_${company}.docx`);
       };
 
       const availableLots = newShipment.product
@@ -408,7 +408,10 @@
             'select',
             {
               value: company,
-              onChange: (e) => setCompany(e.target.value),
+              onChange: (e) => {
+                setCompany(e.target.value);
+                console.log('Смена компании на:', e.target.value);
+              },
               className: 'border p-2 rounded ml-2'
             },
             companies.map((c, index) => React.createElement('option', { key: index, value: c }, c))
