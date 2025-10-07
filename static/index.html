@@ -45,8 +45,10 @@
       const [managers, setManagers] = useState([]);
       const [error, setError] = useState('');
       const [filterProduct, setFilterProduct] = useState('Все продукты');
+      const [filterClient, setFilterClient] = useState('Все клиенты');
+      const [filterManager, setFilterManager] = useState('Все менеджеры');
       const [editItem, setEditItem] = useState(null);
-      const [company, setCompany] = useState('БТТ'); // Выбор компании только после входа
+      const [company, setCompany] = useState('БТТ');
       const [companies, setCompanies] = useState([]);
 
       const admins = [
@@ -88,7 +90,7 @@
         if (user) {
           loadData(user, company);
         } else {
-          loadData('Леонид', company); // Для неавторизованных пользователей показываем данные от 'Леонид' для выбранной компании
+          loadData('Леонид', company);
         }
       }, [user, company]);
 
@@ -308,9 +310,10 @@
       };
 
       const handleExportShipments = () => {
-        const filteredShipments = filterProduct === 'Все продукты' 
-          ? shipments 
-          : shipments.filter(item => item.product === filterProduct);
+        const filteredShipments = shipments
+          .filter(item => (filterProduct === 'Все продукты' || item.product === filterProduct))
+          .filter(item => (filterClient === 'Все клиенты' || item.client === filterClient))
+          .filter(item => (filterManager === 'Все менеджеры' || item.manager === filterManager));
         const data = filteredShipments.map(item => ({
           Дата: item.date,
           Клиент: item.client,
@@ -324,9 +327,10 @@
       };
 
       const groupShipments = () => {
-        const filteredShipments = filterProduct === 'Все продукты' 
-          ? shipments 
-          : shipments.filter(item => item.product === filterProduct);
+        const filteredShipments = shipments
+          .filter(item => (filterProduct === 'Все продукты' || item.product === filterProduct))
+          .filter(item => (filterClient === 'Все клиенты' || item.client === filterClient))
+          .filter(item => (filterManager === 'Все менеджеры' || item.manager === filterManager));
         const grouped = {};
         filteredShipments.forEach((shipment) => {
           let key;
@@ -630,6 +634,7 @@
                         'tr',
                         { className: 'bg-gray-200' },
                         React.createElement('th', { className: 'border p-2' }, 'Дата'),
+                        React.createElement('th', { className: 'border p-2' }, 'Продукция'),
                         React.createElement('th', { className: 'border p-2' }, '№ Лота'),
                         React.createElement('th', { className: 'border p-2' }, 'Количество'),
                         React.createElement('th', { className: 'border p-2' }, 'Срок годности'),
@@ -644,6 +649,7 @@
                           'tr',
                           { key: index },
                           React.createElement('td', { className: 'border p-2' }, item.date),
+                          React.createElement('td', { className: 'border p-2' }, item.product),
                           React.createElement('td', { className: 'border p-2' }, item.lot),
                           React.createElement('td', { className: 'border p-2' }, item.quantity),
                           React.createElement('td', { className: 'border p-2' }, item.expiryDate),
@@ -776,6 +782,49 @@
                 'button',
                 { onClick: handleExportShipments, className: 'bg-purple-500 text-white p-2 rounded' },
                 'Экспорт отгрузок'
+              )
+            ),
+            React.createElement(
+              'div',
+              { className: 'mb-4 flex space-x-4' },
+              React.createElement('label', { className: 'mr-2' }, 'Фильтр по продукции:'),
+              React.createElement(
+                'select',
+                {
+                  value: filterProduct,
+                  onChange: (e) => setFilterProduct(e.target.value),
+                  className: 'border p-2 rounded'
+                },
+                React.createElement('option', { value: 'Все продукты' }, 'Все продукты'),
+                products.map((product, index) =>
+                  React.createElement('option', { key: index, value: product }, product)
+                )
+              ),
+              React.createElement('label', { className: 'mr-2' }, 'Фильтр по клиенту:'),
+              React.createElement(
+                'select',
+                {
+                  value: filterClient,
+                  onChange: (e) => setFilterClient(e.target.value),
+                  className: 'border p-2 rounded'
+                },
+                React.createElement('option', { value: 'Все клиенты' }, 'Все клиенты'),
+                clients.map((client, index) =>
+                  React.createElement('option', { key: index, value: client }, client)
+                )
+              ),
+              React.createElement('label', { className: 'mr-2' }, 'Фильтр по менеджеру:'),
+              React.createElement(
+                'select',
+                {
+                  value: filterManager,
+                  onChange: (e) => setFilterManager(e.target.value),
+                  className: 'border p-2 rounded'
+                },
+                React.createElement('option', { value: 'Все менеджеры' }, 'Все менеджеры'),
+                managers.map((manager, index) =>
+                  React.createElement('option', { key: index, value: manager }, manager)
+                )
               )
             ),
             React.createElement(
