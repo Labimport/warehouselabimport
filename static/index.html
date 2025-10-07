@@ -30,7 +30,7 @@
         client: '',
         quantity: '',
         manager: '',
-        company: 'БТТ' // Установим компанию по умолчанию
+        company: 'БТТ'
       });
       const [newStock, setNewStock] = useState({
         date: new Date().toISOString().split('T')[0],
@@ -38,7 +38,7 @@
         lot: '',
         quantity: '',
         expiryDate: '',
-        company: 'БТТ' // Установим компанию по умолчанию
+        company: 'БТТ'
       });
       const [activeTab, setActiveTab] = useState('inventory');
       const [products, setProducts] = useState([]);
@@ -51,6 +51,8 @@
       const [editItem, setEditItem] = useState(null);
       const [company, setCompany] = useState('БТТ');
       const [companies, setCompanies] = useState([]);
+      const [startDate, setStartDate] = useState('');
+      const [endDate, setEndDate] = useState('');
 
       const admins = [
         { username: 'Леонид', password: '12345678lm' },
@@ -77,11 +79,19 @@
             })
             .then(data => {
               console.log('Данные загружены для компании:', company, data);
-              // Фильтруем данные по компании, если сервер не сделал это
-              const filteredInventory = data.inventory.map(item => ({ ...item, company: item.company || company, id: item.id || `inv_${Date.now()}_${index}` })) || [];
-              const filteredShipments = data.shipments.map(item => ({ ...item, company: item.company || company, id: item.id || `ship_${Date.now()}_${index}` })) || [];
-              setInventory(filteredInventory.filter(item => item.company === company));
-              setShipments(filteredShipments.filter(item => item.company === company));
+              // Добавляем поле company, если его нет, и фильтруем
+              const filteredInventory = (data.inventory || []).map((item, index) => ({
+                ...item,
+                company: item.company || company,
+                id: item.id || `inv_${Date.now()}_${index}`
+              })).filter(item => item.company === company);
+              const filteredShipments = (data.shipments || []).map((item, index) => ({
+                ...item,
+                company: item.company || company,
+                id: item.id || `ship_${Date.now()}_${index}`
+              })).filter(item => item.company === company);
+              setInventory(filteredInventory);
+              setShipments(filteredShipments);
               const allProducts = [...new Set([...filteredInventory.map(i => i.product), ...filteredShipments.map(s => s.product)])];
               const allClients = [...new Set(filteredShipments.map(s => s.client))];
               const allManagers = [...new Set(filteredShipments.map(s => s.manager))];
