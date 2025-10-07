@@ -49,6 +49,7 @@
       const [editItem, setEditItem] = useState(null);
       const [company, setCompany] = useState('БТТ');
       const [companies, setCompanies] = useState([]);
+
       const [startDate, setStartDate] = useState('');
       const [endDate, setEndDate] = useState('');
 
@@ -90,8 +91,10 @@
 
         if (user) {
           loadData(user, company);
+          console.log('Данные загружены для пользователя:', user, 'компания:', company);
         } else {
           loadData('Леонид', company);
+          console.log('Данные загружены для гостевого пользователя:', 'Леонид', 'компания:', company);
         }
       }, [user, company]);
 
@@ -136,6 +139,7 @@
         const newRole = isAdmin ? 'admin' : 'viewer';
         setUserRole(newRole);
         setPassword('');
+        console.log('Логин выполнен:', { user: trimmedUserName, role: newRole });
       };
 
       const handleStockSubmit = (e) => {
@@ -397,8 +401,8 @@
           { className: 'container mx-auto p-4' },
           React.createElement('h1', { className: 'text-2xl font-bold mb-4' }, 'Вход в систему'),
           React.createElement(
-            'div',
-            { className: 'flex space-x-2' },
+            'form',
+            { onSubmit: handleLogin, className: 'flex space-x-2' },
             React.createElement('input', {
               type: 'text',
               placeholder: 'Введите имя пользователя',
@@ -415,7 +419,7 @@
             }),
             React.createElement(
               'button',
-              { onClick: handleLogin, className: 'bg-blue-500 text-white p-2 rounded' },
+              { type: 'submit', className: 'bg-blue-500 text-white p-2 rounded' },
               'Войти'
             )
           ),
