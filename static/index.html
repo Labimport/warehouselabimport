@@ -61,43 +61,38 @@
       ];
 
       useEffect(() => {
-        fetch('/api/companies')
-          .then(response => response.json())
+        fetch('https://warehouselabimport.onrender.com/api/companies', { mode: 'cors' })
+          .then(response => {
+            console.log('Ответ от /api/companies:', response);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response.json();
+          })
           .then(data => {
             console.log('Компании загружены:', data);
             setCompanies(data || ['БТТ', 'ЛИ']);
           })
-          .catch(error => setError('Ошибка загрузки компаний: ' + error.message));
+          .catch(error => {
+            console.error('Ошибка загрузки компаний:', error);
+            setError('Ошибка загрузки компаний: ' + error.message);
+          });
       }, []);
 
       useEffect(() => {
         const loadData = (username, company) => {
           console.log(`Загрузка данных для пользователя: ${username}, компания: ${company}`);
-          fetch(`/api/data/${username}/${company}`)
+          fetch(`https://warehouselabimport.onrender.com/api/data/${username}/${company}`, { mode: 'cors' })
             .then(response => {
+              console.log('Ответ от /api/data:', response);
               if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
               return response.json();
             })
             .then(data => {
               console.log('Полученные данные с сервера:', data);
-              // Добавляем поле company, если его нет, и фильтруем
-              const filteredInventory = (data.inventory || []).map((item, index) => ({
-                ...item,
-                company: item.company || company,
-                id: item.id || `inv_${Date.now()}_${index}`
-              })).filter(item => item.company === company);
-              const filteredShipments = (data.shipments || []).map((item, index) => ({
-                ...item,
-                company: item.company || company,
-                id: item.id || `ship_${Date.now()}_${index}`
-              })).filter(item => item.company === company);
-              console.log('Отфильтрованный инвентарь:', filteredInventory);
-              console.log('Отфильтрованные отгрузки:', filteredShipments);
-              setInventory(filteredInventory);
-              setShipments(filteredShipments);
-              const allProducts = [...new Set([...filteredInventory.map(i => i.product), ...filteredShipments.map(s => s.product)])];
-              const allClients = [...new Set(filteredShipments.map(s => s.client))];
-              const allManagers = [...new Set(filteredShipments.map(s => s.manager))];
+              setInventory(data.inventory || []);
+              setShipments(data.shipments || []);
+              const allProducts = [...new Set([...(data.inventory || []).map(i => i.product), ...(data.shipments || []).map(s => s.product)])];
+              const allClients = [...new Set((data.shipments || []).map(s => s.client))];
+              const allManagers = [...new Set((data.shipments || []).map(s => s.manager))];
               setProducts(allProducts.filter(p => p));
               setClients(allClients.filter(c => c));
               setManagers(allManagers.filter(m => m));
@@ -122,16 +117,20 @@
       }, [inventory, shipments, user, company]);
 
       const saveData = (username, company, data) => {
-        fetch(`/api/data/${username}/${company}`, {
+        fetch(`https://warehouselabimport.onrender.com/api/data/${username}/${company}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
+          body: JSON.stringify(data),
+          mode: 'cors'
         })
         .then(response => {
-          if (!response.ok) throw new Error('Ошибка сохранения данных');
+          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
           return response.json();
         })
-        .catch(error => setError('Ошибка сохранения данных: ' + error.message));
+        .catch(error => {
+          console.error('Ошибка сохранения данных:', error);
+          setError('Ошибка сохранения данных: ' + error.message);
+        });
       };
 
       const handleLogin = (e) => {
@@ -247,7 +246,7 @@
           let docContent = '<html><body><h1>' + filename.replace('.docx', '') + '</h1><table border="1">';
           docContent += '<tr><th>Дата</th><th>Клиент</th><th>Продукция</th><th>№ Лота</th><th>Количество</th><th>Менеджер</th></tr>';
           data.forEach(item => {
-            docContent += '<tr><td>' + item.Дата + '</td><td>' + (item.Клиент || '') + '</td><td>' + item.Продукция + '</td><td>' + item['№ Лота'] + '</td><td>' + item.Количество + '</td><td>' + (item.Менеджер || '') + '</td></tr>';
+            docContent += '<tr><td>' + item.date + '</td><td>' + (item.client || '') + '</td><td>' + item.product + '</td><td>' + item.lot + '</td><td>' + item.quantity + '</td><td>' + (item.manager || '') + '</td></tr>';
           });
           docContent += '</table></body></html>';
           saveAs(new Blob(['\ufeff', docContent], { type: 'application/msword' }), filename);
@@ -259,483 +258,194 @@
       const handleExportInventory = () => {
         const filteredInventory = inventory.filter(item => item.company === company && (filterProduct === 'Все продукты' || item.product === filterProduct));
         const data = filteredInventory.map(item => ({
-          Дата: item.date,
-          Продукция: item.product,
-          '№ Лота': item.lot,
-          Количество: item.quantity,
-          'Срок годности': item.expiryDate
+          date: item.date,
+          product: item.product,
+          lot: item.lot,
+          quantity: item.quantity,
+          expiryDate: item.expiryDate
         }));
-        exportToExcel(data, `inventory_${user || 'guest'}_${company}.xlsx`, ['Дата', 'Продукция', '№ Лота', 'Количество', 'Срок годности']);
+        exportToExcel(data, `inventory_${user || 'guest'}_${company}.xlsx`, ['date', 'product', 'lot', 'quantity', 'expiryDate']);
         exportToWord(data, `inventory_${user || 'guest'}_${company}.docx`);
       };
 
       const handleExportShipments = () => {
         const filteredShipments = shipments
-          .filter(item => item.company === company)
-          .filter(item => filterProduct === 'Все продукты' || item.product === filterProduct)
-          .filter(item => filterClient === 'Все клиенты' || item.client === filterClient)
-          .filter(item => filterManager === 'Все менеджеры' || item.manager === filterManager)
-          .filter(item => {
-            if (!startDate && !endDate) return true;
-            const itemDate = new Date(item.date);
-            const start = startDate ? new Date(startDate) : new Date(0);
-            const end = endDate ? new Date(endDate) : new Date();
-            end.setHours(23, 59, 59, 999);
-            return itemDate >= start && itemDate <= end;
-          });
+          .filter(item => item.company === company && (filterClient === 'Все клиенты' || item.client === filterClient) && (filterManager === 'Все менеджеры' || item.manager === filterManager))
+          .filter(item => (!startDate || new Date(item.date) >= new Date(startDate)) && (!endDate || new Date(item.date) <= new Date(endDate)));
         const data = filteredShipments.map(item => ({
-          Дата: item.date,
-          Клиент: item.client,
-          Продукция: item.product,
-          '№ Лота': item.lot,
-          Количество: item.quantity,
-          Менеджер: item.manager
+          date: item.date,
+          client: item.client,
+          product: item.product,
+          lot: item.lot,
+          quantity: item.quantity,
+          manager: item.manager
         }));
-        exportToExcel(data, `shipments_${user || 'guest'}_${company}.xlsx`, ['Дата', 'Клиент', 'Продукция', '№ Лота', 'Количество', 'Менеджер']);
+        exportToExcel(data, `shipments_${user || 'guest'}_${company}.xlsx`, ['date', 'client', 'product', 'lot', 'quantity', 'manager']);
         exportToWord(data, `shipments_${user || 'guest'}_${company}.docx`);
       };
 
-      const availableLots = newShipment.product
-        ? inventory.filter(item => item.product === newShipment.product && item.quantity > 0 && item.company === company).map(item => item.lot).filter((lot, index, self) => self.indexOf(lot) === index)
-        : [];
-
-      const handleEdit = (item) => {
-        if (userRole !== 'admin') {
-          setError('Только администраторы могут редактировать записи');
-          return;
-        }
-        setEditItem(item);
-        if (item.hasOwnProperty('client')) setNewShipment({ ...item });
-        else setNewStock({ ...item });
-      };
-
-      const handleDelete = (item, isInventory) => {
-        if (userRole !== 'admin') {
-          setError('Только администраторы могут удалять записи');
-          return;
-        }
-        if (window.confirm(`Удалить запись ${item.product}, № Лота ${item.lot}?`)) {
-          try {
-            if (isInventory) setInventory(inventory.filter(i => i.id !== item.id));
-            else {
-              const stock = inventory.find(i => i.product === item.product && i.lot === item.lot && i.company === company);
-              if (stock) setInventory(inventory.map(i => i.product === item.product && i.lot === item.lot && i.company === company
-                ? { ...i, quantity: Number(i.quantity) + Number(item.quantity) }
-                : i));
-              setShipments(shipments.filter(s => s.id !== item.id));
-            }
-            setError('');
-          } catch (e) {
-            setError('Ошибка при удалении записи: ' + e.message);
-          }
-        }
-      };
-
-      const groupInventoryByProduct = () => {
-        const filteredInventory = inventory.filter(item => item.company === company && (filterProduct === 'Все продукты' || item.product === filterProduct));
-        const grouped = {};
-        filteredInventory.forEach(item => {
-          if (!grouped[item.product]) grouped[item.product] = [];
-          grouped[item.product].push(item);
-        });
-        return grouped;
-      };
-
-      if (!user) {
-        return React.createElement(
-          'div',
-          { className: 'container mx-auto p-4' },
-          React.createElement('h1', { className: 'text-2xl font-bold mb-4' }, 'Вход в систему'),
-          React.createElement(
-            'form',
-            { onSubmit: handleLogin, className: 'flex space-x-2' },
-            React.createElement('input', {
-              type: 'text',
-              placeholder: 'Имя пользователя',
-              value: userName,
-              onChange: (e) => setUserName(e.target.value),
-              className: 'border p-2 rounded'
-            }),
-            React.createElement('input', {
-              type: 'password',
-              placeholder: 'Пароль (для админов)',
-              value: password,
-              onChange: (e) => setPassword(e.target.value),
-              className: 'border p-2 rounded'
-            }),
-            React.createElement(
-              'button',
-              { type: 'submit', className: 'bg-blue-500 text-white p-2 rounded' },
-              'Войти'
-            )
-          ),
-          error && React.createElement('div', { className: 'text-red-500 mt-2' }, error)
-        );
-      }
-
-      return React.createElement(
-        'div',
-        { className: 'container mx-auto p-4' },
-        React.createElement(
-          'div',
-          { className: 'flex justify-between items-center mb-4' },
-          React.createElement(
-            'h1',
-            { className: 'text-2xl font-bold' },
-            `Учет продукции (Пользователь: ${user}, Роль: ${userRole === 'admin' ? 'Админ' : 'Просмотр'}, Компания: ${company})`
-          ),
-          React.createElement(
-            'button',
-            {
-              onClick: () => { setUser(null); setUserRole(null); setError(''); },
-              className: 'bg-red-500 text-white p-2 rounded'
-            },
-            'Выйти'
-          )
-        ),
-        React.createElement(
-          'div',
-          { className: 'mb-4' },
-          React.createElement(
-            'button',
-            {
-              className: `p-2 ${activeTab === 'inventory' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`,
-              onClick: () => setActiveTab('inventory')
-            },
-            'Остатки'
-          ),
-          React.createElement(
-            'button',
-            {
-              className: `p-2 ${activeTab === 'shipments' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`,
-              onClick: () => setActiveTab('shipments')
-            },
-            'Отгрузки'
-          ),
-          React.createElement(
-            'select',
-            {
-              value: filterProduct,
-              onChange: (e) => setFilterProduct(e.target.value),
-              className: 'border p-2 rounded ml-4'
-            },
-            React.createElement('option', { value: 'Все продукты' }, 'Все продукты'),
-            products.map((product, index) => React.createElement('option', { key: index, value: product }, product))
-          ),
-          React.createElement(
-            'select',
-            {
-              value: company,
-              onChange: (e) => {
-                const newCompany = e.target.value;
-                console.log('Смена компании на:', newCompany);
-                setCompany(newCompany);
-              },
-              className: 'border p-2 rounded ml-2'
-            },
-            companies.map((c, index) => React.createElement('option', { key: index, value: c }, c))
-          )
-        ),
-        error && React.createElement('div', { className: 'text-red-500 mb-4' }, error),
-        activeTab === 'inventory' && React.createElement(
-          'div',
-          null,
-          React.createElement(
-            'div',
-            { className: 'mb-8' },
-            React.createElement('h2', { className: 'text-xl font-semibold mb-2' }, 'Добавить остаток'),
-            userRole !== 'admin' ? React.createElement('p', { className: 'text-red-500' }, 'Только админы') : React.createElement(
-              'div',
-              { className: 'flex space-x-2' },
-              React.createElement('input', {
-                type: 'date',
-                value: newStock.date,
-                onChange: (e) => setNewStock({ ...newStock, date: e.target.value }),
-                className: 'border p-2 rounded'
-              }),
-              React.createElement('input', {
-                type: 'text',
-                placeholder: 'Продукция',
-                value: newStock.product,
-                list: 'productsList',
-                onChange: (e) => setNewStock({ ...newStock, product: e.target.value }),
-                className: 'border p-2 rounded'
-              }),
-              React.createElement('datalist', { id: 'productsList' }, products.map((product, index) => React.createElement('option', { key: index, value: product }))),
-              React.createElement('input', {
-                type: 'text',
-                placeholder: '№ Лота',
-                value: newStock.lot,
-                onChange: (e) => setNewStock({ ...newStock, lot: e.target.value }),
-                className: 'border p-2 rounded'
-              }),
-              React.createElement('input', {
-                type: 'number',
-                placeholder: 'Количество',
-                value: newStock.quantity,
-                onChange: (e) => setNewStock({ ...newStock, quantity: e.target.value }),
-                className: 'border p-2 rounded'
-              }),
-              React.createElement('input', {
-                type: 'date',
-                placeholder: 'Срок годности',
-                value: newStock.expiryDate,
-                onChange: (e) => setNewStock({ ...newStock, expiryDate: e.target.value }),
-                className: 'border p-2 rounded'
-              }),
-              React.createElement(
-                'button',
-                { onClick: handleStockSubmit, className: 'bg-blue-500 text-white p-2 rounded' },
-                editItem ? 'Сохранить' : 'Добавить'
-              )
-            )
-          ),
-          React.createElement(
-            'button',
-            { onClick: handleExportInventory, className: 'bg-purple-500 text-white p-2 rounded mb-4' },
-            'Экспорт остатков'
-          ),
-          Object.keys(groupInventoryByProduct()).map(product => React.createElement(
-            'div',
-            { key: product, className: 'mb-4' },
-            React.createElement('h3', { className: 'text-lg font-semibold' }, product || 'Без названия'),
-            React.createElement(
-              'table',
-              { className: 'w-full border-collapse border' },
-              React.createElement(
-                'thead',
-                null,
-                React.createElement(
-                  'tr',
-                  { className: 'bg-gray-200' },
-                  React.createElement('th', { className: 'border p-2' }, 'Дата'),
-                  React.createElement('th', { className: 'border p-2' }, '№ Лота'),
-                  React.createElement('th', { className: 'border p-2' }, 'Количество'),
-                  React.createElement('th', { className: 'border p-2' }, 'Срок годности'),
-                  React.createElement('th', { className: 'border p-2' }, 'Действия')
-                )
-              ),
-              React.createElement(
-                'tbody',
-                null,
-                groupInventoryByProduct()[product].map((item, index) => React.createElement(
-                  'tr',
-                  { key: index },
-                  React.createElement('td', { className: 'border p-2' }, item.date),
-                  React.createElement('td', { className: 'border p-2' }, item.lot),
-                  React.createElement('td', { className: 'border p-2' }, item.quantity),
-                  React.createElement('td', { className: 'border p-2' }, item.expiryDate),
-                  React.createElement(
-                    'td',
-                    { className: 'border p-2' },
-                    React.createElement(
-                      'button',
-                      { onClick: () => handleEdit(item), className: 'bg-yellow-500 text-white p-1 rounded mr-2' },
-                      'Ред.'
-                    ),
-                    React.createElement(
-                      'button',
-                      { onClick: () => handleDelete(item, true), className: 'bg-red-500 text-white p-1 rounded' },
-                      'Удал.'
-                    )
-                  )
-                ))
-              )
-            )
-          ))
-        ),
-        activeTab === 'shipments' && React.createElement(
-          'div',
-          null,
-          React.createElement(
-            'div',
-            { className: 'mb-8' },
-            React.createElement('h2', { className: 'text-xl font-semibold mb-2' }, 'Добавить отгрузку'),
-            userRole !== 'admin' ? React.createElement('p', { className: 'text-red-500' }, 'Только админы') : React.createElement(
-              'div',
-              { className: 'flex space-x-2' },
-              React.createElement('input', {
-                type: 'date',
-                value: newShipment.date,
-                onChange: (e) => setNewShipment({ ...newShipment, date: e.target.value }),
-                className: 'border p-2 rounded'
-              }),
-              React.createElement('input', {
-                type: 'text',
-                placeholder: 'Клиент',
-                value: newShipment.client,
-                list: 'clientsList',
-                onChange: (e) => setNewShipment({ ...newShipment, client: e.target.value }),
-                className: 'border p-2 rounded'
-              }),
-              React.createElement('datalist', { id: 'clientsList' }, clients.map((client, index) => React.createElement('option', { key: index, value: client }))),
-              React.createElement('input', {
-                type: 'text',
-                placeholder: 'Продукция',
-                value: newShipment.product,
-                list: 'productsList',
-                onChange: (e) => setNewShipment({ ...newShipment, product: e.target.value, lot: '' }),
-                className: 'border p-2 rounded'
-              }),
-              React.createElement('datalist', { id: 'productsList' }, products.map((product, index) => React.createElement('option', { key: index, value: product }))),
-              React.createElement('input', {
-                type: 'text',
-                placeholder: '№ Лота',
-                value: newShipment.lot,
-                list: 'lotsList',
-                onChange: (e) => setNewShipment({ ...newShipment, lot: e.target.value }),
-                className: 'border p-2 rounded',
-                disabled: !newShipment.product
-              }),
-              React.createElement('datalist', { id: 'lotsList' }, availableLots.map((lot, index) => React.createElement('option', { key: index, value: lot }))),
-              React.createElement('input', {
-                type: 'number',
-                placeholder: 'Количество',
-                value: newShipment.quantity,
-                onChange: (e) => setNewShipment({ ...newShipment, quantity: e.target.value }),
-                className: 'border p-2 rounded'
-              }),
-              React.createElement('input', {
-                type: 'text',
-                placeholder: 'Менеджер',
-                value: newShipment.manager,
-                list: 'managersList',
-                onChange: (e) => setNewShipment({ ...newShipment, manager: e.target.value }),
-                className: 'border p-2 rounded'
-              }),
-              React.createElement('datalist', { id: 'managersList' }, managers.map((manager, index) => React.createElement('option', { key: index, value: manager }))),
-              React.createElement(
-                'button',
-                { onClick: handleShipmentSubmit, className: 'bg-green-500 text-white p-2 rounded' },
-                editItem ? 'Сохранить' : 'Отгрузить'
-              )
-            )
-          ),
-          React.createElement(
-            'button',
-            { onClick: handleExportShipments, className: 'bg-purple-500 text-white p-2 rounded mb-4' },
-            'Экспорт отгрузок'
-          ),
-          React.createElement(
-            'div',
-            { className: 'mb-4 flex space-x-4' },
-            React.createElement('label', { className: 'mr-2' }, 'Фильтр по продукции:'),
-            React.createElement(
-              'select',
-              {
-                value: filterProduct,
-                onChange: (e) => setFilterProduct(e.target.value),
-                className: 'border p-2 rounded'
-              },
-              React.createElement('option', { value: 'Все продукты' }, 'Все продукты'),
-              products.map((product, index) => React.createElement('option', { key: index, value: product }, product))
-            ),
-            React.createElement('label', { className: 'mr-2' }, 'Фильтр по клиенту:'),
-            React.createElement(
-              'select',
-              {
-                value: filterClient,
-                onChange: (e) => setFilterClient(e.target.value),
-                className: 'border p-2 rounded'
-              },
-              React.createElement('option', { value: 'Все клиенты' }, 'Все клиенты'),
-              clients.map((client, index) => React.createElement('option', { key: index, value: client }, client))
-            ),
-            React.createElement('label', { className: 'mr-2' }, 'Фильтр по менеджеру:'),
-            React.createElement(
-              'select',
-              {
-                value: filterManager,
-                onChange: (e) => setFilterManager(e.target.value),
-                className: 'border p-2 rounded'
-              },
-              React.createElement('option', { value: 'Все менеджеры' }, 'Все менеджеры'),
-              managers.map((manager, index) => React.createElement('option', { key: index, value: manager }, manager))
-            ),
-            React.createElement('label', { className: 'mr-2' }, 'С:'),
-            React.createElement('input', {
-              type: 'date',
-              value: startDate,
-              onChange: (e) => setStartDate(e.target.value),
-              className: 'border p-2 rounded'
-            }),
-            React.createElement('label', { className: 'mr-2 ml-2' }, 'По:'),
-            React.createElement('input', {
-              type: 'date',
-              value: endDate,
-              onChange: (e) => setEndDate(e.target.value),
-              className: 'border p-2 rounded'
-            })
-          ),
-          React.createElement(
-            'table',
-            { className: 'w-full border-collapse border' },
-            React.createElement(
-              'thead',
-              null,
-              React.createElement(
-                'tr',
-                { className: 'bg-gray-200' },
-                React.createElement('th', { className: 'border p-2' }, 'Дата'),
-                React.createElement('th', { className: 'border p-2' }, 'Клиент'),
-                React.createElement('th', { className: 'border p-2' }, 'Продукция'),
-                React.createElement('th', { className: 'border p-2' }, '№ Лота'),
-                React.createElement('th', { className: 'border p-2' }, 'Количество'),
-                React.createElement('th', { className: 'border p-2' }, 'Менеджер'),
-                React.createElement('th', { className: 'border p-2' }, 'Действия')
-              )
-            ),
-            React.createElement(
-              'tbody',
-              null,
-              shipments
-                .filter(item => item.company === company)
-                .filter(item => filterProduct === 'Все продукты' || item.product === filterProduct)
-                .filter(item => filterClient === 'Все клиенты' || item.client === filterClient)
-                .filter(item => filterManager === 'Все менеджеры' || item.manager === filterManager)
-                .filter(item => {
-                  if (!startDate && !endDate) return true;
-                  const itemDate = new Date(item.date);
-                  const start = startDate ? new Date(startDate) : new Date(0);
-                  const end = endDate ? new Date(endDate) : new Date();
-                  end.setHours(23, 59, 59, 999);
-                  return itemDate >= start && itemDate <= end;
-                })
-                .map((shipment, index) => React.createElement(
-                  'tr',
-                  { key: index },
-                  React.createElement('td', { className: 'border p-2' }, shipment.date),
-                  React.createElement('td', { className: 'border p-2' }, shipment.client),
-                  React.createElement('td', { className: 'border p-2' }, shipment.product),
-                  React.createElement('td', { className: 'border p-2' }, shipment.lot),
-                  React.createElement('td', { className: 'border p-2' }, shipment.quantity),
-                  React.createElement('td', { className: 'border p-2' }, shipment.manager),
-                  React.createElement(
-                    'td',
-                    { className: 'border p-2' },
-                    React.createElement(
-                      'button',
-                      { onClick: () => handleEdit(shipment), className: 'bg-yellow-500 text-white p-1 rounded mr-2' },
-                      'Ред.'
-                    ),
-                    React.createElement(
-                      'button',
-                      { onClick: () => handleDelete(shipment, false), className: 'bg-red-500 text-white p-1 rounded' },
-                      'Удал.'
-                    )
-                  )
-                ))
-            )
-          )
-        )
+      return (
+        <div className="container mx-auto p-4">
+          {!user ? (
+            <div className="max-w-md mx-auto">
+              <h1 className="text-2xl font-bold mb-4">Вход</h1>
+              <form onSubmit={handleLogin} className="space-y-4">
+                <input
+                  type="text"
+                  value={userName}
+                  onChange={(e) => setUserName(e.target.value)}
+                  placeholder="Имя пользователя"
+                  className="w-full p-2 border rounded"
+                />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Пароль"
+                  className="w-full p-2 border rounded"
+                />
+                <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded">Войти</button>
+              </form>
+              {error && <p className="mt-2 text-red-500">{error}</p>}
+            </div>
+          ) : (
+            <div>
+              <h1 className="text-2xl font-bold mb-4">Учет продукции на складе - {user} ({userRole})</h1>
+              <div className="mb-4">
+                <label>Компания: </label>
+                <select value={company} onChange={(e) => setCompany(e.target.value)} className="p-2 border rounded">
+                  {companies.map((c, index) => <option key={index} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="mb-4">
+                <button onClick={() => setActiveTab('inventory')} className={`mr-2 p-2 ${activeTab === 'inventory' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}>Остатки</button>
+                <button onClick={() => setActiveTab('shipments')} className={`p-2 ${activeTab === 'shipments' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}>Отгрузки</button>
+              </div>
+              {activeTab === 'inventory' && (
+                <div>
+                  <form onSubmit={handleStockSubmit} className="space-y-4 mb-4">
+                    <input type="date" value={newStock.date} onChange={(e) => setNewStock({ ...newStock, date: e.target.value })} className="p-2 border rounded" />
+                    <select value={newStock.product} onChange={(e) => setNewStock({ ...newStock, product: e.target.value })} className="p-2 border rounded">
+                      <option value="">Выберите продукт</option>
+                      {products.map((p, index) => <option key={index} value={p}>{p}</option>)}
+                    </select>
+                    <input type="text" value={newStock.lot} onChange={(e) => setNewStock({ ...newStock, lot: e.target.value })} placeholder="№ Лота" className="p-2 border rounded" />
+                    <input type="number" value={newStock.quantity} onChange={(e) => setNewStock({ ...newStock, quantity: e.target.value })} placeholder="Количество" className="p-2 border rounded" />
+                    <input type="date" value={newStock.expiryDate} onChange={(e) => setNewStock({ ...newStock, expiryDate: e.target.value })} placeholder="Срок годности" className="p-2 border rounded" />
+                    <button type="submit" className="bg-green-500 text-white p-2 rounded">{editItem ? 'Обновить' : 'Добавить'}</button>
+                    {editItem && <button onClick={() => { setEditItem(null); setNewStock({ date: newStock.date, product: '', lot: '', quantity: '', expiryDate: '', company }); }} className="bg-red-500 text-white p-2 rounded ml-2">Отмена</button>}
+                  </form>
+                  <select value={filterProduct} onChange={(e) => setFilterProduct(e.target.value)} className="p-2 border rounded mb-2">
+                    <option value="Все продукты">Все продукты</option>
+                    {products.map((p, index) => <option key={index} value={p}>{p}</option>)}
+                  </select>
+                  <button onClick={handleExportInventory} className="bg-blue-500 text-white p-2 rounded mb-4">Экспорт</button>
+                  <table className="w-full border-collapse border">
+                    <thead>
+                      <tr className="bg-gray-200">
+                        <th className="border p-2">Дата</th>
+                        <th className="border p-2">Продукция</th>
+                        <th className="border p-2">№ Лота</th>
+                        <th className="border p-2">Количество</th>
+                        <th className="border p-2">Срок годности</th>
+                        <th className="border p-2">Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inventory
+                        .filter(item => item.company === company && (filterProduct === 'Все продукты' || item.product === filterProduct))
+                        .map((item) => (
+                          <tr key={item.id}>
+                            <td className="border p-2">{item.date}</td>
+                            <td className="border p-2">{item.product}</td>
+                            <td className="border p-2">{item.lot}</td>
+                            <td className="border p-2">{item.quantity}</td>
+                            <td className="border p-2">{item.expiryDate}</td>
+                            <td className="border p-2">
+                              <button onClick={() => { setEditItem(item); setNewStock({ ...item, company }); }} className="bg-yellow-500 text-white p-1 rounded mr-1">Редактировать</button>
+                              <button onClick={() => setInventory(inventory.filter(i => i.id !== item.id))} className="bg-red-500 text-white p-1 rounded">Удалить</button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {activeTab === 'shipments' && (
+                <div>
+                  <form onSubmit={handleShipmentSubmit} className="space-y-4 mb-4">
+                    <input type="date" value={newShipment.date} onChange={(e) => setNewShipment({ ...newShipment, date: e.target.value })} className="p-2 border rounded" />
+                    <select value={newShipment.product} onChange={(e) => setNewShipment({ ...newShipment, product: e.target.value })} className="p-2 border rounded">
+                      <option value="">Выберите продукт</option>
+                      {products.map((p, index) => <option key={index} value={p}>{p}</option>)}
+                    </select>
+                    <input type="text" value={newShipment.lot} onChange={(e) => setNewShipment({ ...newShipment, lot: e.target.value })} placeholder="№ Лота" className="p-2 border rounded" />
+                    <select value={newShipment.client} onChange={(e) => setNewShipment({ ...newShipment, client: e.target.value })} className="p-2 border rounded">
+                      <option value="">Выберите клиента</option>
+                      {clients.map((c, index) => <option key={index} value={c}>{c}</option>)}
+                    </select>
+                    <input type="number" value={newShipment.quantity} onChange={(e) => setNewShipment({ ...newShipment, quantity: e.target.value })} placeholder="Количество" className="p-2 border rounded" />
+                    <select value={newShipment.manager} onChange={(e) => setNewShipment({ ...newShipment, manager: e.target.value })} className="p-2 border rounded">
+                      <option value="">Выберите менеджера</option>
+                      {managers.map((m, index) => <option key={index} value={m}>{m}</option>)}
+                    </select>
+                    <button type="submit" className="bg-green-500 text-white p-2 rounded">{editItem ? 'Обновить' : 'Добавить'}</button>
+                    {editItem && <button onClick={() => { setEditItem(null); setNewShipment({ date: newShipment.date, product: newShipment.product, lot: '', client: newShipment.client, quantity: '', manager: newShipment.manager, company }); }} className="bg-red-500 text-white p-2 rounded ml-2">Отмена</button>}
+                  </form>
+                  <select value={filterClient} onChange={(e) => setFilterClient(e.target.value)} className="p-2 border rounded mb-2 mr-2">
+                    <option value="Все клиенты">Все клиенты</option>
+                    {clients.map((c, index) => <option key={index} value={c}>{c}</option>)}
+                  </select>
+                  <select value={filterManager} onChange={(e) => setFilterManager(e.target.value)} className="p-2 border rounded mb-2 mr-2">
+                    <option value="Все менеджеры">Все менеджеры</option>
+                    {managers.map((m, index) => <option key={index} value={m}>{m}</option>)}
+                  </select>
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} placeholder="Дата начала" className="p-2 border rounded mb-2 mr-2" />
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="Дата окончания" className="p-2 border rounded mb-2" />
+                  <button onClick={handleExportShipments} className="bg-blue-500 text-white p-2 rounded mb-4">Экспорт</button>
+                  <table className="w-full border-collapse border">
+                    <thead>
+                      <tr className="bg-gray-200">
+                        <th className="border p-2">Дата</th>
+                        <th className="border p-2">Клиент</th>
+                        <th className="border p-2">Продукция</th>
+                        <th className="border p-2">№ Лота</th>
+                        <th className="border p-2">Количество</th>
+                        <th className="border p-2">Менеджер</th>
+                        <th className="border p-2">Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shipments
+                        .filter(item => item.company === company && (filterClient === 'Все клиенты' || item.client === filterClient) && (filterManager === 'Все менеджеры' || item.manager === filterManager))
+                        .filter(item => (!startDate || new Date(item.date) >= new Date(startDate)) && (!endDate || new Date(item.date) <= new Date(endDate)))
+                        .map((item) => (
+                          <tr key={item.id}>
+                            <td className="border p-2">{item.date}</td>
+                            <td className="border p-2">{item.client}</td>
+                            <td className="border p-2">{item.product}</td>
+                            <td className="border p-2">{item.lot}</td>
+                            <td className="border p-2">{item.quantity}</td>
+                            <td className="border p-2">{item.manager}</td>
+                            <td className="border p-2">
+                              <button onClick={() => { setEditItem(item); setNewShipment({ ...item, company }); }} className="bg-yellow-500 text-white p-1 rounded mr-1">Редактировать</button>
+                              <button onClick={() => setShipments(shipments.filter(i => i.id !== item.id))} className="bg-red-500 text-white p-1 rounded">Удалить</button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <button onClick={() => { setUser(null); setUserRole(null); setError(''); }} className="bg-red-500 text-white p-2 rounded mt-4">Выход</button>
+              {error && <p className="mt-2 text-red-500">{error}</p>}
+            </div>
+          )}
+        </div>
       );
     };
 
-    try {
-      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
-    } catch (e) {
-      document.getElementById('error').innerText = 'Ошибка рендеринга: ' + e.message;
-    }
+    ReactDOM.render(<App />, document.getElementById('root'));
   </script>
 </body>
 </html>
