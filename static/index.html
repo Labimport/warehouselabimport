@@ -115,7 +115,7 @@
         if (user && userRole === 'admin') {
           saveData(user, company, { inventory, shipments });
         }
-      }, [inventory, shipments, user, company]);
+      }, [inventory, shipments, user]);
 
       const saveData = (username, company, data) => {
         fetch(`/api/data/${username}/${company}`, {
