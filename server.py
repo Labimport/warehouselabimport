@@ -19,7 +19,9 @@ if db_url:
     result = urllib.parse.urlparse(db_url)
     username = result.username
     password = result.password
-    db_url = f"postgresql://{username}:{password}@{result.hostname}:{result.port}/{result.path[1:]}?sslmode=require"
+    # Проверка и установка порта по умолчанию, если он отсутствует или None
+    port = result.port if result.port else 5432
+    db_url = f"postgresql://{username}:{password}@{result.hostname}:{port}/{result.path[1:]}?sslmode=require"
     logger.info(f"Используется DATABASE_URL: {db_url}")
 else:
     logger.warning("DATABASE_URL не найден, используется локальный URL")
