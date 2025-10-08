@@ -1,146 +1,119 @@
-import os
-import urllib.parse
-from flask import Flask, request, jsonify
-from flask_sqlalchemy import SQLAlchemy
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import logging
-from sqlalchemy.exc import OperationalError
+from flask_sqlalchemy import SQLAlchemy
+import os
 
-# Настройка логирования
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+app = Flask(__name__, static_folder='static', template_folder='templates')
+CORS(app)
 
-app = Flask(__name__)
-
-# Извлечение DATABASE_URL и настройка для SQLAlchemy
+# Настройка базы данных
 db_url = os.environ.get('DATABASE_URL')
-if db_url:
-    if db_url.startswith('postgres://'):
-        db_url = db_url.replace('postgres://', 'postgresql://', 1)
-    result = urllib.parse.urlparse(db_url)
-    username = result.username
-    password = result.password
-    port = result.port if result.port else 5432
-    db_url = f"postgresql://{username}:{password}@{result.hostname}:{port}/{result.path[1:]}?sslmode=require"
-    logger.info(f"Используется DATABASE_URL: {db_url}")
-else:
-    logger.warning("DATABASE_URL не найден, используется локальный URL")
-    db_url = 'postgresql://user:password@localhost:5432/warehouse'
+if not db_url:
+    print("WARNING: DATABASE_URL не настроен, используется SQLite в памяти")
+    db_url = 'sqlite:///:memory:'
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_size': 5,
-    'max_overflow': 10,
-    'pool_timeout': 90,  # Увеличено до 90 секунд
-    'pool_recycle': 1800
-}
-CORS(app)
 db = SQLAlchemy(app)
 
-# Модели
-class Inventory(db.Model):
-    id = db.Column(db.String, primary_key=True)
-    date = db.Column(db.String)
-    product = db.Column(db.String)
-    lot = db.Column(db.String)
-    quantity = db.Column(db.Integer)
-    expiryDate = db.Column(db.String)
-    company = db.Column(db.String)
-    username = db.Column(db.String)
+# Модель данных с полем company
+class UserData(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), nullable=False)
+    company = db.Column(db.String(10), nullable=False)
+    inventory = db.Column(db.JSON, nullable=False, default=[])
+    shipments = db.Column(db.JSON, nullable=False, default=[])
 
-class Shipment(db.Model):
-    id = db.Column(db.String, primary_key=True)
-    date = db.Column(db.String)
-    product = db.Column(db.String)
-    lot = db.Column(db.String)
-    client = db.Column(db.String)
-    quantity = db.Column(db.Integer)
-    manager = db.Column(db.String)
-    company = db.Column(db.String)
-    username = db.Column(db.String)
+    __table_args__ = (db.UniqueConstraint('username', 'company', name='uix_username_company'),)
 
-# Проверка подключения к базе
-def check_db_connection():
-    try:
-        with db.engine.connect() as connection:
-            logger.info("Подключение к базе данных проверено успешно")
-            return True
-    except OperationalError as e:
-        logger.error(f"Ошибка подключения к базе данных: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"Неожиданная ошибка подключения: {e}")
-        return False
+# Создание таблиц и добавление тестовых данных
+try:
+    with app.app_context():
+        db.create_all()
+        print("Таблицы успешно созданы или уже существуют")
+        # Проверка и добавление тестовых данных
+        test_user_btt = UserData.query.filter_by(username='Леонид', company='БТТ').first()
+        if not test_user_btt:
+            test_user_btt = UserData(
+                username='Леонид',
+                company='БТТ',
+                inventory=[{'date': '2025-10-01', 'product': 'Продукт1', 'lot': 'A1', 'quantity': 100, 'expiryDate': '2026-10-01'}],
+                shipments=[{'date': '2025-10-02', 'product': 'Продукт1', 'lot': 'A1', 'client': 'Клиент1', 'quantity': 50, 'manager': 'Менеджер1'}]
+            )
+            db.session.add(test_user_btt)
+            db.session.commit()
+            print("Тестовые данные добавлены для Леонид (БТТ)")
+        test_user_li = UserData.query.filter_by(username='Леонид', company='ЛИ').first()
+        if not test_user_li:
+            test_user_li = UserData(
+                username='Леонид',
+                company='ЛИ',
+                inventory=[{'date': '2025-10-01', 'product': 'Продукт2', 'lot': 'B1', 'quantity': 200, 'expiryDate': '2026-10-01'}],
+                shipments=[{'date': '2025-10-02', 'product': 'Продукт2', 'lot': 'B1', 'client': 'Клиент2', 'quantity': 100, 'manager': 'Менеджер2'}]
+            )
+            db.session.add(test_user_li)
+            db.session.commit()
+            print("Тестовые данные добавлены для Леонид (ЛИ)")
+except Exception as e:
+    print(f"Ошибка создания таблиц или добавления данных: {e}")
 
-# Инициализация
-with app.app_context():
-    if not check_db_connection():
-        logger.error("Не удалось установить подключение к базе данных при старте")
-
+# Регистрация маршрута для главной страницы
 @app.route('/')
-def home():
-    logger.info("Получен запрос на главную страницу")
-    return "", 200
+def index():
+    print("Получен запрос на главную страницу")
+    return app.send_static_file('index.html')
 
-@app.route('/api/companies', methods=['GET'])
-def get_companies():
-    logger.info("Получен запрос GET /api/companies")
-    if not check_db_connection():
-        return jsonify({'error': 'Нет подключения к базе данных'}), 502
-    try:
-        return jsonify(['БТТ', 'ЛИ'])
-    except Exception as e:
-        logger.error(f"Ошибка в /api/companies: {e}")
-        return jsonify({'error': 'Ошибка сервера'}), 500
-
+# Эндпоинт для получения данных пользователя по компании
 @app.route('/api/data/<username>/<company>', methods=['GET'])
 def get_data(username, company):
-    logger.info(f"Получен запрос GET /api/data/{username}/{company}")
-    if not check_db_connection():
-        return jsonify({'error': 'Нет подключения к базе данных'}), 502
+    print(f"Получен запрос GET /api/data/{username}/{company}")
     try:
-        inventory = Inventory.query.filter_by(username=username, company=company).all()
-        shipments = Shipment.query.filter_by(username=username, company=company).all()
-        data = {
-            'inventory': [{'id': i.id, 'date': i.date, 'product': i.product, 'lot': i.lot,
-                          'quantity': i.quantity, 'expiryDate': i.expiryDate, 'company': i.company}
-                         for i in inventory],
-            'shipments': [{'id': s.id, 'date': s.date, 'product': s.product, 'lot': s.lot,
-                          'client': s.client, 'quantity': s.quantity, 'manager': s.manager,
-                          'company': s.company} for s in shipments]
-        }
-        logger.info(f"Данные для {username}, {company}: {data}")
-        return jsonify(data)
+        user_data = UserData.query.filter_by(username=username, company=company).first()
+        if user_data:
+            print(f"Найдены данные для {username}, {company}: {user_data.inventory}, {user_data.shipments}")
+            return jsonify({
+                'inventory': user_data.inventory or [],
+                'shipments': user_data.shipments or []
+            })
+        print(f"Нет данных для {username}, {company}, возвращен пустой JSON")
+        return jsonify({'inventory': [], 'shipments': []})
     except Exception as e:
-        logger.error(f"Ошибка в /api/data: {e}")
-        return jsonify({'error': 'Ошибка сервера'}), 500
+        print(f"Ошибка обработки запроса: {e}")
+        return jsonify({'error': str(e)}), 500
 
+# Эндпоинт для сохранения данных пользователя по компании
 @app.route('/api/data/<username>/<company>', methods=['POST'])
 def save_data(username, company):
-    logger.info(f"Получен запрос POST /api/data/{username}/{company}")
-    if not check_db_connection():
-        return jsonify({'error': 'Нет подключения к базе данных'}), 502
+    print(f"Получен запрос POST /api/data/{username}/{company}")
     try:
-        data = request.get_json()
-        Inventory.query.filter_by(username=username, company=company).delete()
-        Shipment.query.filter_by(username=username, company=company).delete()
-        for item in data.get('inventory', []):
-            inv = Inventory(id=item['id'], date=item['date'], product=item['product'],
-                           lot=item['lot'], quantity=item['quantity'], expiryDate=item['expiryDate'],
-                           company=company, username=username)
-            db.session.add(inv)
-        for item in data.get('shipments', []):
-            ship = Shipment(id=item['id'], date=item['date'], product=item['product'],
-                           lot=item['lot'], client=item['client'], quantity=item['quantity'],
-                           manager=item['manager'], company=company, username=username)
-            db.session.add(ship)
+        user_data = UserData.query.filter_by(username=username, company=company).first()
+        new_data = request.get_json() or {}
+        if user_data:
+            user_data.inventory = new_data.get('inventory', [])
+            user_data.shipments = new_data.get('shipments', [])
+        else:
+            user_data = UserData(username=username, company=company, inventory=new_data.get('inventory', []), shipments=new_data.get('shipments', []))
+            db.session.add(user_data)
         db.session.commit()
-        logger.info(f"Данные сохранены для {username}, {company}")
-        return jsonify({"message": "Данные сохранены"}), 200
+        print(f"Данные успешно сохранены для {username}, {company}")
+        return jsonify({'status': 'success'})
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"Ошибка в /api/data (POST): {e}")
-        return jsonify({'error': 'Ошибка сохранения данных'}), 500
+        print(f"Ошибка сохранения данных: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# Эндпоинт для получения всех компаний
+@app.route('/api/companies', methods=['GET'])
+def get_companies():
+    print("Получен запрос GET /api/companies")
+    try:
+        companies = db.session.query(UserData.company).distinct().all()
+        result = [c[0] for c in companies]
+        print(f"Возвращены компании: {result}")
+        return jsonify(result)
+    except Exception as e:
+        print(f"Ошибка получения компаний: {e}")
+        return jsonify([])
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get('PORT', 8080))
+    print(f"Сервер запущен на порту {port}")
+    app.run(host='0.0.0.0', port=port)
