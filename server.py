@@ -19,7 +19,6 @@ if db_url:
     result = urllib.parse.urlparse(db_url)
     username = result.username
     password = result.password
-    # Проверка и установка порта по умолчанию, если он отсутствует или None
     port = result.port if result.port else 5432
     db_url = f"postgresql://{username}:{password}@{result.hostname}:{port}/{result.path[1:]}?sslmode=require"
     logger.info(f"Используется DATABASE_URL: {db_url}")
@@ -64,16 +63,21 @@ def check_db_connection():
     try:
         with db.engine.connect() as connection:
             logger.info("Подключение к базе данных успешно")
+            return True
     except Exception as e:
         logger.error(f"Ошибка подключения к базе данных: {e}")
-        raise
+        return False
 
-# Инициализация (без принудительного создания таблиц)
+# Инициализация таблиц
 with app.app_context():
     try:
-        check_db_connection()
-    except Exception:
-        logger.error("Не удалось установить подключение к базе данных при старте")
+        if not check_db_connection():
+            raise Exception("Не удалось подключиться к базе данных")
+        # Создание таблиц, если их нет
+        db.create_all()
+        logger.info("Таблицы базы данных инициализированы")
+    except Exception as e:
+        logger.error(f"Ошибка инициализации базы данных: {e}")
 
 @app.route('/')
 def home():
@@ -83,52 +87,62 @@ def home():
 @app.route('/api/companies', methods=['GET'])
 def get_companies():
     logger.info("Получен запрос GET /api/companies")
-    return jsonify(['БТТ', 'ЛИ'])
+    try:
+        if not check_db_connection():
+            return jsonify({'error': 'Ошибка подключения к базе данных'}), 502
+        return jsonify(['БТТ', 'ЛИ'])
+    except Exception as e:
+        logger.error(f"Ошибка в /api/companies: {e}")
+        return jsonify({'error': 'Ошибка сервера'}), 502
 
 @app.route('/api/data/<username>/<company>', methods=['GET'])
 def get_data(username, company):
     logger.info(f"Получен запрос GET /api/data/{username}/{company}")
     try:
+        if not check_db_connection():
+            return jsonify({'error': 'Ошибка подключения к базе данных'}), 502
         inventory = Inventory.query.filter_by(username=username, company=company).all()
         shipments = Shipment.query.filter_by(username=username, company=company).all()
         data = {
-            'inventory': [{'id': i.id, 'date': i.date, 'product': i.product, 'lot': i.lot, 
-                          'quantity': i.quantity, 'expiryDate': i.expiryDate, 'company': i.company} 
-                          for i in inventory],
-            'shipments': [{'id': s.id, 'date': s.date, 'product': s.product, 'lot': s.lot, 
-                          'client': s.client, 'quantity': s.quantity, 'manager': s.manager, 
+            'inventory': [{'id': i.id, 'date': i.date, 'product': i.product, 'lot': i.lot,
+                          'quantity': i.quantity, 'expiryDate': i.expiryDate, 'company': i.company}
+                         for i in inventory],
+            'shipments': [{'id': s.id, 'date': s.date, 'product': s.product, 'lot': s.lot,
+                          'client': s.client, 'quantity': s.quantity, 'manager': s.manager,
                           'company': s.company} for s in shipments]
         }
-        logger.info(f"Найдены данные для {username}, {company}: {data['inventory']}, {data['shipments']}")
+        logger.info(f"Данные для {username}, {company}: {data}")
         return jsonify(data)
     except Exception as e:
-        logger.error(f"Ошибка при получении данных: {e}")
-        return jsonify({'error': 'Ошибка сервера'}), 500
+        logger.error(f"Ошибка в /api/data: {e}")
+        return jsonify({'error': 'Ошибка сервера'}), 502
 
 @app.route('/api/data/<username>/<company>', methods=['POST'])
 def save_data(username, company):
     logger.info(f"Получен запрос POST /api/data/{username}/{company}")
     try:
+        if not check_db_connection():
+            return jsonify({'error': 'Ошибка подключения к базе данных'}), 502
         data = request.get_json()
         Inventory.query.filter_by(username=username, company=company).delete()
         Shipment.query.filter_by(username=username, company=company).delete()
         for item in data.get('inventory', []):
-            inv = Inventory(id=item['id'], date=item['date'], product=item['product'], 
-                           lot=item['lot'], quantity=item['quantity'], expiryDate=item['expiryDate'], 
+            inv = Inventory(id=item['id'], date=item['date'], product=item['product'],
+                           lot=item['lot'], quantity=item['quantity'], expiryDate=item['expiryDate'],
                            company=company, username=username)
             db.session.add(inv)
         for item in data.get('shipments', []):
-            ship = Shipment(id=item['id'], date=item['date'], product=item['product'], 
-                           lot=item['lot'], client=item['client'], quantity=item['quantity'], 
+            ship = Shipment(id=item['id'], date=item['date'], product=item['product'],
+                           lot=item['lot'], client=item['client'], quantity=item['quantity'],
                            manager=item['manager'], company=company, username=username)
             db.session.add(ship)
         db.session.commit()
-        logger.info(f"Данные успешно сохранены для {username}, {company}")
+        logger.info(f"Данные сохранены для {username}, {company}")
         return jsonify({"message": "Данные сохранены"}), 200
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Ошибка при сохранении данных: {e}")
-        return jsonify({'error': 'Ошибка сохранения данных'}), 500
+        logger.error(f"Ошибка в /api/data (POST): {e}")
+        return jsonify({'error': 'Ошибка сохранения данных'}), 502
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
