@@ -72,6 +72,7 @@
 
       useEffect(() => {
         const loadData = (username, company) => {
+          setLoading(true);
           fetch(`/api/data/${username}/${company}`)
             .then(response => {
               if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -99,7 +100,8 @@
               setClients(allClients.filter(c => c));
               setManagers(allManagers.filter(m => m));
             })
-            .catch(error => setError('Ошибка загрузки данных: ' + error.message));
+            .catch(error => setError('Ошибка загрузки данных: ' + error.message))
+          .finally(() => setLoading(false));
         };
 
         if (user) {
@@ -112,10 +114,10 @@
       }, [user, company]);
 
       useEffect(() => {
-        if (user && userRole === 'admin') {
-          saveData(user, company, { inventory, shipments });
-        }
-      }, [inventory, shipments, user]);
+      if (!loading && user && userRole === 'admin') {
+        saveData(user, company, { inventory, shipments });
+      }
+    }, [inventory, shipments, user, loading]);
 
       const saveData = (username, company, data) => {
         fetch(`/api/data/${username}/${company}`, {
