@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory, render_template
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import os
@@ -15,7 +15,7 @@ if not db_url:
     print("⚠️ DATABASE_URL не найден, используется локальный SQLite")
     db_url = "sqlite:///data.db"
 
-# Исправляем URL для PostgreSQL (Render может прислать старый формат)
+# Исправляем старый формат postgres URL если нужно
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -153,7 +153,7 @@ def save_data(username, company):
     return jsonify({"status": "success"})
 
 # ==========================
-# 🏁 Точка запуска
+# 🏁 Запуск
 # ==========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
