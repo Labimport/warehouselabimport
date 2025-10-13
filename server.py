@@ -1,9 +1,9 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, render_template
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import os
 
-app = Flask(__name__, static_folder='.', static_url_path='')
+app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
 
 # ==========================
@@ -15,7 +15,7 @@ if not db_url:
     print("⚠️ DATABASE_URL не найден, используется локальный SQLite")
     db_url = "sqlite:///data.db"
 
-# Исправляем URL для PostgreSQL (Render иногда передаёт старый формат)
+# Исправляем URL для PostgreSQL (Render может прислать старый формат)
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -33,7 +33,6 @@ class UserData(db.Model):
     company = db.Column(db.String(80), nullable=False)
     inventory = db.Column(db.JSON, nullable=False, default=[])
     shipments = db.Column(db.JSON, nullable=False, default=[])
-
     __table_args__ = (
         db.UniqueConstraint("username", "company", name="uix_username_company"),
     )
@@ -45,11 +44,9 @@ with app.app_context():
     db.create_all()
     print("✅ Таблицы успешно созданы или уже существуют")
 
-    # Проверяем, есть ли данные
     existing_btt = UserData.query.filter_by(username="Леонид", company="БТТ").first()
     existing_li = UserData.query.filter_by(username="Леонид", company="ЛИ").first()
 
-    # Если нет — добавляем стартовые записи
     if not existing_btt:
         db.session.add(UserData(
             username="Леонид",
@@ -102,12 +99,20 @@ with app.app_context():
 # ==========================
 @app.route("/")
 def serve_index():
-    print("📄 Отправка index.html")
-    return send_from_directory(".", "index.html")
+    """Отправка index.html (ищет сначала в static/, потом в корне)"""
+    if os.path.exists(os.path.join("static", "index.html")):
+        print("📄 Отправка index.html из static/")
+        return send_from_directory("static", "index.html")
+    elif os.path.exists("index.html"):
+        print("📄 Отправка index.html из корня проекта")
+        return send_from_directory(".", "index.html")
+    else:
+        print("❌ index.html не найден!")
+        return "index.html не найден на сервере", 404
 
 @app.route("/api/companies", methods=["GET"])
 def get_companies():
-    print("📊 Запрос компаний")
+    print("📊 Запрос списка компаний")
     companies = db.session.query(UserData.company).distinct().all()
     return jsonify([c[0] for c in companies])
 
@@ -116,10 +121,12 @@ def get_data(username, company):
     print(f"📥 Запрос данных: {username} / {company}")
     user_data = UserData.query.filter_by(username=username, company=company).first()
     if user_data:
+        print(f"✅ Найдены данные для {username} / {company}")
         return jsonify({
             "inventory": user_data.inventory,
             "shipments": user_data.shipments
         })
+    print(f"⚠️ Нет данных для {username} / {company}")
     return jsonify({"inventory": [], "shipments": []})
 
 @app.route("/api/data/<username>/<company>", methods=["POST"])
@@ -142,6 +149,7 @@ def save_data(username, company):
         )
         db.session.add(user_data)
     db.session.commit()
+    print(f"✅ Данные сохранены для {username} / {company}")
     return jsonify({"status": "success"})
 
 # ==========================
