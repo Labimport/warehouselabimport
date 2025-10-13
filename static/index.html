@@ -1,18 +1,19 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Учет продукции на складе</title>
   <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
 </head>
 <body>
   <div id="root"></div>
   <div id="error" class="text-red-500 p-4"></div>
+
   <script>
     const { useState, useEffect } = React;
 
@@ -53,7 +54,7 @@
       const [companies, setCompanies] = useState([]);
       const [startDate, setStartDate] = useState('');
       const [endDate, setEndDate] = useState('');
-      const [loading, setLoading] = useState(false); // ✅ добавлен флаг загрузки
+      const [loading, setLoading] = useState(false); // ✅ защита от автосохранения при загрузке
 
       const admins = [
         { username: 'Леонид', password: '12345678lm' },
@@ -61,8 +62,9 @@
         { username: 'Дмитрий', password: '12345678dd' }
       ];
 
+      // Загрузка списка компаний
       useEffect(() => {
-        fetch('/api/companies')
+        fetch(`${window.location.origin}/api/companies`)
           .then(response => response.json())
           .then(data => {
             console.log('Компании:', data);
@@ -71,10 +73,11 @@
           .catch(error => setError('Ошибка загрузки компаний: ' + error.message));
       }, []);
 
+      // Загрузка данных по пользователю и компании
       useEffect(() => {
         const loadData = (username, company) => {
-          setLoading(true); // ✅ начинаем загрузку
-          fetch(`/api/data/${username}/${company}`)
+          setLoading(true);
+          fetch(`${window.location.origin}/api/data/${username}/${company}`)
             .then(response => {
               if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
               return response.json();
@@ -85,62 +88,47 @@
                 ...item,
                 company: item.company || company,
                 id: item.id || `inv_${Date.now()}_${index}`
-              })).filter(item => item.company === company);
+              }));
               const filteredShipments = (data.shipments || []).map((item, index) => ({
                 ...item,
                 company: item.company || company,
                 id: item.id || `ship_${Date.now()}_${index}`
-              })).filter(item => item.company === company);
+              }));
               setInventory(filteredInventory);
               setShipments(filteredShipments);
               const allProducts = [...new Set([...filteredInventory.map(i => i.product), ...filteredShipments.map(s => s.product)])];
               const allClients = [...new Set(filteredShipments.map(s => s.client))];
               const allManagers = [...new Set(filteredShipments.map(s => s.manager))];
-              setProducts(allProducts.filter(p => p));
-              setClients(allClients.filter(c => c));
-              setManagers(allManagers.filter(m => m));
+              setProducts(allProducts.filter(Boolean));
+              setClients(allClients.filter(Boolean));
+              setManagers(allManagers.filter(Boolean));
             })
             .catch(error => setError('Ошибка загрузки данных: ' + error.message))
-            .finally(() => setLoading(false)); // ✅ завершаем загрузку
+            .finally(() => setLoading(false));
         };
 
-        if (user) {
-          loadData(user, company);
-          console.log('Пользователь авторизован:', user, 'Компания:', company);
-        } else {
-          loadData('Леонид', company);
-          console.log('Гостевой доступ для:', 'Леонид', 'Компания:', company);
-        }
+        if (user) loadData(user, company);
+        else loadData('Леонид', company);
       }, [user, company]);
 
-      // ✅ сохраняем данные только если не идет загрузка
+      // Сохранение данных (только если не загружаем)
       useEffect(() => {
         if (!loading && user && userRole === 'admin') {
-          saveData(user, company, { inventory, shipments });
+          fetch(`${window.location.origin}/api/data/${user}/${company}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ inventory, shipments })
+          }).catch(err => setError('Ошибка сохранения: ' + err.message));
         }
       }, [inventory, shipments, user, loading]);
 
-      const saveData = (username, company, data) => {
-        fetch(`/api/data/${username}/${company}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        })
-        .then(response => {
-          if (!response.ok) throw new Error('Ошибка сохранения данных');
-          return response.json();
-        })
-        .catch(error => setError('Ошибка сохранения данных: ' + error.message));
-      };
-
       const handleLogin = (e) => {
         e.preventDefault();
-        if (!userName.trim()) {
+        const trimmedUserName = userName.trim();
+        if (!trimmedUserName) {
           setError('Введите имя пользователя');
           return;
         }
-        const trimmedUserName = userName.trim();
-        console.log('Попытка логина:', { username: trimmedUserName, password });
         const isAdmin = admins.find(
           admin => admin.username.toLowerCase() === trimmedUserName.toLowerCase() && admin.password === password
         );
@@ -151,12 +139,33 @@
         setUser(trimmedUserName);
         setUserRole(isAdmin ? 'admin' : 'viewer');
         setPassword('');
-        console.log('Логин успешен:', { user: trimmedUserName, role: userRole });
       };
 
-      // (всё остальное — без изменений)
-      // ...
-      // твои функции handleStockSubmit, handleShipmentSubmit, экспорт и рендеринг остаются прежними
+      if (!user) {
+        return React.createElement(
+          'div', { className: 'container mx-auto p-4' },
+          React.createElement('h1', { className: 'text-2xl font-bold mb-4' }, 'Вход в систему'),
+          React.createElement(
+            'form',
+            { onSubmit: handleLogin, className: 'flex space-x-2' },
+            React.createElement('input', { type: 'text', placeholder: 'Имя пользователя', value: userName, onChange: e => setUserName(e.target.value), className: 'border p-2 rounded' }),
+            React.createElement('input', { type: 'password', placeholder: 'Пароль (для админов)', value: password, onChange: e => setPassword(e.target.value), className: 'border p-2 rounded' }),
+            React.createElement('button', { type: 'submit', className: 'bg-blue-500 text-white p-2 rounded' }, 'Войти')
+          ),
+          error && React.createElement('div', { className: 'text-red-500 mt-2' }, error)
+        );
+      }
+
+      return React.createElement(
+        'div', { className: 'container mx-auto p-4' },
+        React.createElement('h1', { className: 'text-2xl font-bold mb-4' }, `Учет продукции (${company}) — ${user}`),
+        React.createElement('select', { value: company, onChange: e => setCompany(e.target.value), className: 'border p-2 rounded mb-4' },
+          companies.map((c, i) => React.createElement('option', { key: i, value: c }, c))
+        ),
+        loading && React.createElement('div', { className: 'text-blue-500 mb-2' }, 'Загрузка данных...'),
+        error && React.createElement('div', { className: 'text-red-500 mb-2' }, error),
+        React.createElement('pre', null, JSON.stringify({ inventory, shipments }, null, 2))
+      );
     };
 
     try {
