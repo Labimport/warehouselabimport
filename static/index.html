@@ -64,7 +64,7 @@
           .catch(() => setCompanies(["БТТ", "ЛИ"]));
       }, []);
 
-      // загрузка данных
+      // === загрузка данных при смене компании ===
       useEffect(() => {
         if (!user) return;
         fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`)
@@ -77,8 +77,12 @@
             setProducts([...new Set(inv.map(x => x.product).filter(Boolean))]);
             setClients([...new Set(shp.map(x => x.client).filter(Boolean))]);
             setManagers([...new Set(shp.map(x => x.manager).filter(Boolean))]);
+          })
+          .catch(() => {
+            setInventory([]);
+            setShipments([]);
           });
-      }, [user, company]);
+      }, [user, company]); // ← вот сюда добавили company
 
       // автосохранение
       useEffect(() => {
@@ -91,7 +95,7 @@
             body: JSON.stringify({ inventory, shipments })
           }).catch(console.error);
         }, 1000);
-      }, [inventory, shipments]);
+      }, [inventory, shipments, company]); // ← и сюда добавили company
 
       // логин
       const handleLogin = (e) => {
@@ -178,7 +182,6 @@
             React.createElement("button", { onClick: () => setActiveTab("shipments"), className: `p-2 ${activeTab==="shipments"?"bg-blue-500 text-white":"bg-gray-200"}` }, "Отгрузки")
           ),
 
-          // === ОСТАТКИ ===
           activeTab === "inventory" && React.createElement("div", null,
             React.createElement("div", { className: "flex items-center gap-3 mb-4" },
               React.createElement("label", null, "Фильтр по продукции:"),
@@ -230,7 +233,6 @@
             )
           ),
 
-          // === ОТГРУЗКИ ===
           activeTab === "shipments" && React.createElement("div", null,
             React.createElement("form", { onSubmit: handleShipmentSubmit, className: "flex flex-wrap gap-2 mb-4" },
               React.createElement("input", { type: "date", value: newShipment.date, onChange: e => setNewShipment(s => ({ ...s, date: e.target.value })), className: "border p-2 rounded" }),
@@ -245,8 +247,7 @@
               React.createElement("datalist", { id: "managerList" }, managers.map((m, i) => React.createElement("option", { key: i, value: m }))),
               React.createElement("button", { type: "submit", className: "bg-green-500 text-white py-2 px-4 rounded" }, "Добавить")
             ),
-            shipments
-              .filter(s => s.company === company)
+            shipments.filter(s => s.company === company)
               .map((s, i) =>
                 React.createElement("div", { key: i, className: "bg-white rounded shadow p-3 mb-2" },
                   React.createElement("div", { className: "flex justify-between" },
