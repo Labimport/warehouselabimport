@@ -1,34 +1,33 @@
-from flask import Flask, jsonify, request, send_from_directory
-from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
 import os
 import json
+import psycopg2
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
 
-app = Flask(__name__, static_folder=".", static_url_path="")
+app = Flask(__name__)
 CORS(app)
 
-# === Настройка подключения к PostgreSQL ===
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://warehouse_db_new_user:My65iK0GpKzjmzgCtENhXngWUwRZaCOI@dpg-d3iejrbipnbc73e4gc1g-a/warehouse_db_new"
-)
-
+# === Настройки базы данных ===
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data.db")
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-BACKUP_FILE = "backup.json"
 
 db = SQLAlchemy(app)
+BACKUP_FILE = "backup.json"
+
 
 # === Модели ===
 class Inventory(db.Model):
     id = db.Column(db.String, primary_key=True)
-    user = db.Column(db.String)
+    user = db.Column(db.String)  # пользователь (админ)
     company = db.Column(db.String)
     date = db.Column(db.String)
     product = db.Column(db.String)
     lot = db.Column(db.String)
     quantity = db.Column(db.Float)
     expiryDate = db.Column(db.String)
+
 
 class Shipment(db.Model):
     id = db.Column(db.String, primary_key=True)
@@ -41,160 +40,86 @@ class Shipment(db.Model):
     quantity = db.Column(db.Float)
     manager = db.Column(db.String)
 
-# === Инициализация базы ===
+
+# === Создание таблиц ===
 with app.app_context():
     db.create_all()
-    print("✅ Таблицы успешно созданы или уже существуют")
 
-    # === Восстановление из backup.json при пустой базе ===
-    if not Inventory.query.first() and os.path.exists(BACKUP_FILE):
-        with open(BACKUP_FILE, "r", encoding="utf-8") as f:
-            try:
-                data = json.load(f)
-                for i in data.get("inventory", []):
-                    db.session.add(Inventory(**i))
-                for s in data.get("shipments", []):
-                    db.session.add(Shipment(**s))
-                db.session.commit()
-                print("♻️ Данные восстановлены из backup.json")
-            except Exception as e:
-                print(f"⚠️ Ошибка восстановления из backup.json: {e}")
+    # --- Проверка наличия поля "user" ---
+    try:
+        with db.engine.connect() as conn:
+            result = conn.execute("SELECT * FROM inventory LIMIT 1;")
+    except Exception as e:
+        if 'column "user" does not exist' in str(e) or "inventory.user" in str(e):
+            print("⚙️ Добавляю недостающее поле 'user' в таблицу inventory...")
+            with db.engine.connect() as conn:
+                conn.execute('ALTER TABLE inventory ADD COLUMN "user" TEXT;')
+                conn.commit()
 
-# === Главная страница ===
-@app.route("/")
-def index():
-    print("Получен запрос на главную страницу")
-    return send_from_directory(".", "index.html")
+    try:
+        with db.engine.connect() as conn:
+            result = conn.execute("SELECT * FROM shipment LIMIT 1;")
+    except Exception as e:
+        if 'column "user" does not exist' in str(e) or "shipment.user" in str(e):
+            print("⚙️ Добавляю недостающее поле 'user' в таблицу shipment...")
+            with db.engine.connect() as conn:
+                conn.execute('ALTER TABLE shipment ADD COLUMN "user" TEXT;')
+                conn.commit()
 
-# === API: получить список компаний ===
+    print("✅ Таблицы успешно проверены или обновлены")
+
+
+# === API ===
 @app.route("/api/companies")
 def get_companies():
-    companies = db.session.query(Inventory.company).distinct().all()
-    companies = [c[0] for c in companies if c[0]] or ["БТТ", "ЛИ"]
-    print(f"📊 Возвращены компании: {companies}")
-    return jsonify(companies)
+    companies = sorted({i.company for i in Inventory.query.all()} | {"БТТ", "ЛИ"})
+    return jsonify(list(companies))
 
-# === API: получить данные пользователя ===
+
 @app.route("/api/data/<user>/<company>")
 def get_data(user, company):
-    print(f"📥 Получен запрос GET /api/data/{user}/{company}")
-    try:
-        inv = Inventory.query.filter(Inventory.user == user, Inventory.company == company).all()
-        shp = Shipment.query.filter(Shipment.user == user, Shipment.company == company).all()
+    inventory = Inventory.query.filter_by(company=company).all()
+    shipments = Shipment.query.filter_by(company=company).all()
+    return jsonify({
+        "inventory": [i.__dict__ for i in inventory],
+        "shipments": [s.__dict__ for s in shipments]
+    })
 
-        inventory = [dict(
-            id=i.id,
-            date=i.date,
-            product=i.product,
-            lot=i.lot,
-            quantity=i.quantity,
-            expiryDate=i.expiryDate,
-            company=i.company
-        ) for i in inv]
 
-        shipments = [dict(
-            id=s.id,
-            date=s.date,
-            client=s.client,
-            product=s.product,
-            lot=s.lot,
-            quantity=s.quantity,
-            manager=s.manager,
-            company=s.company
-        ) for s in shp]
-
-        print(f"✅ Найдены данные для {user}, {company}: {len(inventory)} остатков, {len(shipments)} отгрузок")
-        return jsonify({"inventory": inventory, "shipments": shipments})
-    except Exception as e:
-        print(f"❌ Ошибка при получении данных: {e}")
-        return jsonify({"inventory": [], "shipments": []})
-
-# === API: сохранить данные пользователя ===
 @app.route("/api/data/<user>/<company>", methods=["POST"])
 def save_data(user, company):
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "Пустые данные"}), 400
+    data = request.get_json()
+    inventory_data = data.get("inventory", [])
+    shipment_data = data.get("shipments", [])
 
-        # Удаляем старые записи только для этой компании и пользователя
-        Inventory.query.filter(Inventory.user == user, Inventory.company == company).delete()
-        Shipment.query.filter(Shipment.user == user, Shipment.company == company).delete()
+    Inventory.query.filter_by(company=company).delete()
+    Shipment.query.filter_by(company=company).delete()
 
-        for i in data.get("inventory", []):
-            db.session.add(Inventory(
-                id=i["id"],
-                user=user,
-                company=i.get("company", company),
-                date=i.get("date"),
-                product=i.get("product"),
-                lot=i.get("lot"),
-                quantity=float(i.get("quantity", 0)),
-                expiryDate=i.get("expiryDate", "")
-            ))
+    for item in inventory_data:
+        db.session.add(Inventory(**item))
+    for item in shipment_data:
+        db.session.add(Shipment(**item))
 
-        for s in data.get("shipments", []):
-            db.session.add(Shipment(
-                id=s["id"],
-                user=user,
-                company=s.get("company", company),
-                date=s.get("date"),
-                client=s.get("client"),
-                product=s.get("product"),
-                lot=s.get("lot"),
-                quantity=float(s.get("quantity", 0)),
-                manager=s.get("manager")
-            ))
-
-        db.session.commit()
-        print(f"💾 Данные сохранены для {user}, {company}")
-
-        # === Сохраняем бэкап в JSON ===
-        all_inventory = [i.__dict__ for i in Inventory.query.all()]
-        all_shipments = [s.__dict__ for s in Shipment.query.all()]
-        for obj_list in (all_inventory, all_shipments):
-            for obj in obj_list:
-                obj.pop("_sa_instance_state", None)
-        with open(BACKUP_FILE, "w", encoding="utf-8") as f:
-            json.dump({"inventory": all_inventory, "shipments": all_shipments}, f, ensure_ascii=False, indent=2)
-        print("💾 Резервная копия сохранена в backup.json")
-
-        return jsonify({"status": "ok"})
-    except Exception as e:
-        db.session.rollback()
-        print(f"❌ Ошибка сохранения: {e}")
-        return jsonify({"error": str(e)}), 500
-
-# === Тестовые данные (на всякий случай) ===
-@app.route("/api/init_test_data")
-def init_test_data():
-    if Inventory.query.first() or Shipment.query.first():
-        return jsonify({"status": "exists"})
-
-    sample_data = {
-        "inventory": [
-            {"id": "inv_1", "user": "Леонид", "company": "БТТ", "date": "2025-10-12", "product": "YRM 1009 Dexamethasone", "lot": "2412A168708C", "quantity": 10, "expiryDate": "2026-06-05"},
-            {"id": "inv_2", "user": "Леонид", "company": "ЛИ", "date": "2025-10-12", "product": "Lunavi Ultraswab ATP", "lot": "20250818", "quantity": 5, "expiryDate": "2026-06-06"}
-        ],
-        "shipments": [
-            {"id": "ship_1", "user": "Леонид", "company": "БТТ", "date": "2025-10-13", "client": "Медистра", "product": "YRM 1009 Dexamethasone", "lot": "2412A168708C", "quantity": 2, "manager": "Ольга"},
-            {"id": "ship_2", "user": "Леонид", "company": "ЛИ", "date": "2025-10-13", "client": "Слуцкий сыродельный", "product": "Lunavi Ultraswab ATP", "lot": "20250818", "quantity": 1, "manager": "Леонид"}
-        ]
-    }
-
-    for i in sample_data["inventory"]:
-        db.session.add(Inventory(**i))
-    for s in sample_data["shipments"]:
-        db.session.add(Shipment(**s))
     db.session.commit()
 
+    # --- Резервная копия ---
     with open(BACKUP_FILE, "w", encoding="utf-8") as f:
-        json.dump(sample_data, f, ensure_ascii=False, indent=2)
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-    print("✅ Тестовые данные добавлены и сохранены в backup.json")
-    return jsonify({"status": "created"})
+    return jsonify({"status": "ok"})
 
-# === Запуск ===
+
+# === Раздача фронтенда ===
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path):
+    if path != "" and os.path.exists(path):
+        return send_from_directory(".", path)
+    else:
+        return send_from_directory(".", "index.html")
+
+
+# === Точка входа ===
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
