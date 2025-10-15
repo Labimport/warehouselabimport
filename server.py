@@ -2,6 +2,7 @@ import os
 from flask import Flask, jsonify, request, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from sqlalchemy import text
 
 app = Flask(__name__)
 CORS(app)
@@ -10,9 +11,24 @@ CORS(app)
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///warehouse.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
+
+# === Проверка и исправление структуры базы ===
+with app.app_context():
+    try:
+        conn = db.engine.connect()
+        # Добавляем недостающие поля безопасно (если их нет)
+        conn.execute(text('ALTER TABLE inventory ADD COLUMN IF NOT EXISTS "user" VARCHAR;'))
+        conn.execute(text('ALTER TABLE shipment ADD COLUMN IF NOT EXISTS "user" VARCHAR;'))
+        conn.commit()
+        print("✅ Проверка структуры БД: поля user добавлены (или уже существовали).")
+    except Exception as e:
+        print("⚠️ Ошибка при проверке/обновлении структуры БД:", e)
+    finally:
+        conn.close()
 
 # === Модели ===
 class Inventory(db.Model):
@@ -36,27 +52,25 @@ class Shipment(db.Model):
     quantity = db.Column(db.Float)
     manager = db.Column(db.String)
 
-# === Создание таблиц ===
+# === Создание таблиц (если их нет) ===
 with app.app_context():
     db.create_all()
 print("✅ Таблицы созданы или уже существуют")
 
-# === Получить список компаний ===
+# === Получение списка компаний ===
 @app.route("/api/companies")
 def get_companies():
     companies = sorted(list({i.company for i in Inventory.query.all()} | {"БТТ", "ЛИ"}))
     print(f"📊 Компании: {companies}")
     return jsonify(companies)
 
-# === Получить все данные (инвентарь и отгрузки) ===
+# === Получение всех данных ===
 @app.route("/api/data/<user>/<company>", methods=["GET"])
 def get_data(user, company):
     inventory = Inventory.query.filter_by(company=company).all()
     shipments = Shipment.query.filter_by(company=company).all()
-
     print(f"📦 Загружены данные {company}: {len(inventory)} остатков, {len(shipments)} отгрузок")
 
-    # Автозаполнение
     products = sorted({i.product for i in inventory if i.product})
     lots_by_product = {p: sorted({i.lot for i in inventory if i.product == p and i.lot}) for p in products}
     clients = sorted({s.client for s in shipments if s.client})
@@ -106,7 +120,7 @@ def save_data(user, company):
 
         print(f"💾 Сохранение: {company}, {len(inventory_data)} остатков, {len(shipments_data)} отгрузок")
 
-        # --- Остатки ---
+        # Остатки
         for item in inventory_data:
             existing = Inventory.query.filter_by(id=item["id"]).first()
             if existing:
@@ -129,7 +143,7 @@ def save_data(user, company):
                     expiryDate=item.get("expiryDate")
                 ))
 
-        # --- Отгрузки ---
+        # Отгрузки
         for s in shipments_data:
             existing = Shipment.query.filter_by(id=s["id"]).first()
             if existing:
