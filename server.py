@@ -1,161 +1,200 @@
 from flask import Flask, jsonify, request, send_from_directory
-from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 import os
+import json
 
-app = Flask(__name__, static_folder='static', template_folder='templates')
+app = Flask(__name__, static_folder=".", static_url_path="")
 CORS(app)
 
-# ==========================
-# 📦 Настройка базы данных
-# ==========================
-db_url = os.environ.get("DATABASE_URL")
+# === Настройка подключения к PostgreSQL ===
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://warehouse_db_new_user:My65iK0GpKzjmzgCtENhXngWUwRZaCOI@dpg-d3iejrbipnbc73e4gc1g-a/warehouse_db_new"
+)
 
-if not db_url:
-    print("⚠️ DATABASE_URL не найден, используется локальный SQLite")
-    db_url = "sqlite:///data.db"
-
-# Исправляем старый формат postgres URL если нужно
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
-
-app.config["SQLALCHEMY_DATABASE_URI"] = db_url
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+BACKUP_FILE = "backup.json"
 
 db = SQLAlchemy(app)
 
-# ==========================
-# 🧱 Модель таблицы
-# ==========================
-class UserData(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), nullable=False)
-    company = db.Column(db.String(80), nullable=False)
-    inventory = db.Column(db.JSON, nullable=False, default=[])
-    shipments = db.Column(db.JSON, nullable=False, default=[])
-    __table_args__ = (
-        db.UniqueConstraint("username", "company", name="uix_username_company"),
-    )
+# === Модели ===
+class Inventory(db.Model):
+    id = db.Column(db.String, primary_key=True)
+    user = db.Column(db.String)
+    company = db.Column(db.String)
+    date = db.Column(db.String)
+    product = db.Column(db.String)
+    lot = db.Column(db.String)
+    quantity = db.Column(db.Float)
+    expiryDate = db.Column(db.String)
 
-# ==========================
-# 🚀 Инициализация данных
-# ==========================
+class Shipment(db.Model):
+    id = db.Column(db.String, primary_key=True)
+    user = db.Column(db.String)
+    company = db.Column(db.String)
+    date = db.Column(db.String)
+    client = db.Column(db.String)
+    product = db.Column(db.String)
+    lot = db.Column(db.String)
+    quantity = db.Column(db.Float)
+    manager = db.Column(db.String)
+
+# === Инициализация базы ===
 with app.app_context():
     db.create_all()
     print("✅ Таблицы успешно созданы или уже существуют")
 
-    existing_btt = UserData.query.filter_by(username="Леонид", company="БТТ").first()
-    existing_li = UserData.query.filter_by(username="Леонид", company="ЛИ").first()
+    # === Восстановление из backup.json при пустой базе ===
+    if not Inventory.query.first() and os.path.exists(BACKUP_FILE):
+        with open(BACKUP_FILE, "r", encoding="utf-8") as f:
+            try:
+                data = json.load(f)
+                for i in data.get("inventory", []):
+                    db.session.add(Inventory(**i))
+                for s in data.get("shipments", []):
+                    db.session.add(Shipment(**s))
+                db.session.commit()
+                print("♻️ Данные восстановлены из backup.json")
+            except Exception as e:
+                print(f"⚠️ Ошибка восстановления из backup.json: {e}")
 
-    if not existing_btt:
-        db.session.add(UserData(
-            username="Леонид",
-            company="БТТ",
-            inventory=[{
-                "date": "2025-10-01",
-                "product": "Продукт1",
-                "lot": "A1",
-                "quantity": 100,
-                "expiryDate": "2026-10-01"
-            }],
-            shipments=[{
-                "date": "2025-10-02",
-                "product": "Продукт1",
-                "lot": "A1",
-                "client": "Клиент1",
-                "quantity": 50,
-                "manager": "Менеджер1"
-            }]
-        ))
-        print("🟢 Добавлены тестовые данные для компании БТТ")
-
-    if not existing_li:
-        db.session.add(UserData(
-            username="Леонид",
-            company="ЛИ",
-            inventory=[{
-                "date": "2025-10-01",
-                "product": "Продукт2",
-                "lot": "B1",
-                "quantity": 200,
-                "expiryDate": "2026-10-01"
-            }],
-            shipments=[{
-                "date": "2025-10-02",
-                "product": "Продукт2",
-                "lot": "B1",
-                "client": "Клиент2",
-                "quantity": 100,
-                "manager": "Менеджер2"
-            }]
-        ))
-        print("🟢 Добавлены тестовые данные для компании ЛИ")
-
-    db.session.commit()
-    print("✅ Инициализация данных завершена")
-
-# ==========================
-# 🌐 Маршруты API
-# ==========================
+# === Главная страница ===
 @app.route("/")
-def serve_index():
-    """Отправка index.html (ищет сначала в static/, потом в корне)"""
-    if os.path.exists(os.path.join("static", "index.html")):
-        print("📄 Отправка index.html из static/")
-        return send_from_directory("static", "index.html")
-    elif os.path.exists("index.html"):
-        print("📄 Отправка index.html из корня проекта")
-        return send_from_directory(".", "index.html")
-    else:
-        print("❌ index.html не найден!")
-        return "index.html не найден на сервере", 404
+def index():
+    print("Получен запрос на главную страницу")
+    return send_from_directory(".", "index.html")
 
-@app.route("/api/companies", methods=["GET"])
+# === API: получить список компаний ===
+@app.route("/api/companies")
 def get_companies():
-    print("📊 Запрос списка компаний")
-    companies = db.session.query(UserData.company).distinct().all()
-    return jsonify([c[0] for c in companies])
+    companies = db.session.query(Inventory.company).distinct().all()
+    companies = [c[0] for c in companies if c[0]] or ["БТТ", "ЛИ"]
+    print(f"📊 Возвращены компании: {companies}")
+    return jsonify(companies)
 
-@app.route("/api/data/<username>/<company>", methods=["GET"])
-def get_data(username, company):
-    print(f"📥 Запрос данных: {username} / {company}")
-    user_data = UserData.query.filter_by(username=username, company=company).first()
-    if user_data:
-        print(f"✅ Найдены данные для {username} / {company}")
-        return jsonify({
-            "inventory": user_data.inventory,
-            "shipments": user_data.shipments
-        })
-    print(f"⚠️ Нет данных для {username} / {company}")
-    return jsonify({"inventory": [], "shipments": []})
+# === API: получить данные пользователя ===
+@app.route("/api/data/<user>/<company>")
+def get_data(user, company):
+    print(f"📥 Получен запрос GET /api/data/{user}/{company}")
+    try:
+        inv = Inventory.query.filter(Inventory.user == user, Inventory.company == company).all()
+        shp = Shipment.query.filter(Shipment.user == user, Shipment.company == company).all()
 
-@app.route("/api/data/<username>/<company>", methods=["POST"])
-def save_data(username, company):
-    print(f"📤 Сохранение данных: {username} / {company}")
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "Нет данных"}), 400
+        inventory = [dict(
+            id=i.id,
+            date=i.date,
+            product=i.product,
+            lot=i.lot,
+            quantity=i.quantity,
+            expiryDate=i.expiryDate,
+            company=i.company
+        ) for i in inv]
 
-    user_data = UserData.query.filter_by(username=username, company=company).first()
-    if user_data:
-        user_data.inventory = data.get("inventory", [])
-        user_data.shipments = data.get("shipments", [])
-    else:
-        user_data = UserData(
-            username=username,
-            company=company,
-            inventory=data.get("inventory", []),
-            shipments=data.get("shipments", [])
-        )
-        db.session.add(user_data)
+        shipments = [dict(
+            id=s.id,
+            date=s.date,
+            client=s.client,
+            product=s.product,
+            lot=s.lot,
+            quantity=s.quantity,
+            manager=s.manager,
+            company=s.company
+        ) for s in shp]
+
+        print(f"✅ Найдены данные для {user}, {company}: {len(inventory)} остатков, {len(shipments)} отгрузок")
+        return jsonify({"inventory": inventory, "shipments": shipments})
+    except Exception as e:
+        print(f"❌ Ошибка при получении данных: {e}")
+        return jsonify({"inventory": [], "shipments": []})
+
+# === API: сохранить данные пользователя ===
+@app.route("/api/data/<user>/<company>", methods=["POST"])
+def save_data(user, company):
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Пустые данные"}), 400
+
+        # Удаляем старые записи только для этой компании и пользователя
+        Inventory.query.filter(Inventory.user == user, Inventory.company == company).delete()
+        Shipment.query.filter(Shipment.user == user, Shipment.company == company).delete()
+
+        for i in data.get("inventory", []):
+            db.session.add(Inventory(
+                id=i["id"],
+                user=user,
+                company=i.get("company", company),
+                date=i.get("date"),
+                product=i.get("product"),
+                lot=i.get("lot"),
+                quantity=float(i.get("quantity", 0)),
+                expiryDate=i.get("expiryDate", "")
+            ))
+
+        for s in data.get("shipments", []):
+            db.session.add(Shipment(
+                id=s["id"],
+                user=user,
+                company=s.get("company", company),
+                date=s.get("date"),
+                client=s.get("client"),
+                product=s.get("product"),
+                lot=s.get("lot"),
+                quantity=float(s.get("quantity", 0)),
+                manager=s.get("manager")
+            ))
+
+        db.session.commit()
+        print(f"💾 Данные сохранены для {user}, {company}")
+
+        # === Сохраняем бэкап в JSON ===
+        all_inventory = [i.__dict__ for i in Inventory.query.all()]
+        all_shipments = [s.__dict__ for s in Shipment.query.all()]
+        for obj_list in (all_inventory, all_shipments):
+            for obj in obj_list:
+                obj.pop("_sa_instance_state", None)
+        with open(BACKUP_FILE, "w", encoding="utf-8") as f:
+            json.dump({"inventory": all_inventory, "shipments": all_shipments}, f, ensure_ascii=False, indent=2)
+        print("💾 Резервная копия сохранена в backup.json")
+
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ Ошибка сохранения: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# === Тестовые данные (на всякий случай) ===
+@app.route("/api/init_test_data")
+def init_test_data():
+    if Inventory.query.first() or Shipment.query.first():
+        return jsonify({"status": "exists"})
+
+    sample_data = {
+        "inventory": [
+            {"id": "inv_1", "user": "Леонид", "company": "БТТ", "date": "2025-10-12", "product": "YRM 1009 Dexamethasone", "lot": "2412A168708C", "quantity": 10, "expiryDate": "2026-06-05"},
+            {"id": "inv_2", "user": "Леонид", "company": "ЛИ", "date": "2025-10-12", "product": "Lunavi Ultraswab ATP", "lot": "20250818", "quantity": 5, "expiryDate": "2026-06-06"}
+        ],
+        "shipments": [
+            {"id": "ship_1", "user": "Леонид", "company": "БТТ", "date": "2025-10-13", "client": "Медистра", "product": "YRM 1009 Dexamethasone", "lot": "2412A168708C", "quantity": 2, "manager": "Ольга"},
+            {"id": "ship_2", "user": "Леонид", "company": "ЛИ", "date": "2025-10-13", "client": "Слуцкий сыродельный", "product": "Lunavi Ultraswab ATP", "lot": "20250818", "quantity": 1, "manager": "Леонид"}
+        ]
+    }
+
+    for i in sample_data["inventory"]:
+        db.session.add(Inventory(**i))
+    for s in sample_data["shipments"]:
+        db.session.add(Shipment(**s))
     db.session.commit()
-    print(f"✅ Данные сохранены для {username} / {company}")
-    return jsonify({"status": "success"})
 
-# ==========================
-# 🏁 Запуск
-# ==========================
+    with open(BACKUP_FILE, "w", encoding="utf-8") as f:
+        json.dump(sample_data, f, ensure_ascii=False, indent=2)
+
+    print("✅ Тестовые данные добавлены и сохранены в backup.json")
+    return jsonify({"status": "created"})
+
+# === Запуск ===
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    print(f"🚀 Сервер запущен на порту {port}")
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
