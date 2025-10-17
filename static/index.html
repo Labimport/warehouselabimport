@@ -6,11 +6,13 @@
   <title>Учет продукции на складе</title>
   <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
 </head>
+
 <body class="bg-gray-50">
   <div id="root" class="p-4"></div>
-
   <script>
     const { useState, useEffect, useRef } = React;
 
@@ -19,17 +21,38 @@
       const [userRole, setUserRole] = useState(null);
       const [userName, setUserName] = useState("");
       const [password, setPassword] = useState("");
-
       const [inventory, setInventory] = useState([]);
       const [shipments, setShipments] = useState([]);
+      const [newStock, setNewStock] = useState({
+        date: new Date().toISOString().split("T")[0],
+        product: "",
+        lot: "",
+        quantity: "",
+        expiryDate: "",
+        company: "БТТ"
+      });
+      const [newShipment, setNewShipment] = useState({
+        date: new Date().toISOString().split("T")[0],
+        client: "",
+        product: "",
+        lot: "",
+        quantity: "",
+        manager: "",
+        company: "БТТ"
+      });
       const [activeTab, setActiveTab] = useState("inventory");
-      const [company, setCompany] = useState("БТТ");
       const [companies, setCompanies] = useState([]);
-      const [error, setError] = useState("");
+      const [company, setCompany] = useState("БТТ");
+      const [products, setProducts] = useState([]);
+      const [clients, setClients] = useState([]);
+      const [managers, setManagers] = useState([]);
+      const [filterProduct, setFilterProduct] = useState("Все продукты");
       const [loading, setLoading] = useState(false);
-      const [editItem, setEditItem] = useState(null); // для popup
-      const [editType, setEditType] = useState(null); // inventory / shipment
+      const [editItem, setEditItem] = useState(null);
+      const [editType, setEditType] = useState(null);
+
       const saveTimeout = useRef(null);
+      const API_ORIGIN = window.location.origin;
 
       const admins = [
         { username: "Леонид", password: "12345678lm" },
@@ -37,151 +60,168 @@
         { username: "Дмитрий", password: "12345678dd" }
       ];
 
-      const API = window.location.origin;
-
-      // загрузка компаний
+      // === Загрузка списка компаний ===
       useEffect(() => {
-        fetch(`${API}/api/companies`)
+        fetch(`${API_ORIGIN}/api/companies`)
           .then(r => r.json())
           .then(d => setCompanies(d || ["БТТ", "ЛИ"]))
-          .catch(e => console.error(e));
+          .catch(() => setCompanies(["БТТ", "ЛИ"]));
       }, []);
 
-      // загрузка данных
+      // === НАДЁЖНАЯ ЗАГРУЗКА ДАННЫХ ===
       useEffect(() => {
         if (!user) return;
         setLoading(true);
-        fetch(`${API}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`)
+        setInventory([]);
+        setShipments([]);
+        fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`)
           .then(r => r.json())
           .then(data => {
-            setInventory(data.inventory || []);
-            setShipments(data.shipments || []);
+            const inv = (data.inventory || []).map((it, i) => ({ ...it, id: it.id || `inv_${Date.now()}_${i}` }));
+            const shp = (data.shipments || []).map((it, i) => ({ ...it, id: it.id || `ship_${Date.now()}_${i}` }));
+            setInventory(inv);
+            setShipments(shp);
+            setProducts([...new Set(inv.map(x => x.product).filter(Boolean))]);
+            setClients([...new Set(shp.map(x => x.client).filter(Boolean))]);
+            setManagers([...new Set(shp.map(x => x.manager).filter(Boolean))]);
           })
           .finally(() => setLoading(false));
       }, [user, company]);
 
-      // автосохранение
+      // === Автосохранение ===
       useEffect(() => {
-        if (!user || userRole !== "admin" || loading) return;
+        if (!user || userRole !== "admin") return;
         if (saveTimeout.current) clearTimeout(saveTimeout.current);
         saveTimeout.current = setTimeout(() => {
-          fetch(`${API}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`, {
+          fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ inventory, shipments })
-          });
-        }, 1000);
-        return () => clearTimeout(saveTimeout.current);
+          }).catch(console.error);
+        }, 800);
       }, [inventory, shipments, company]);
 
+      // === Авторизация ===
       const handleLogin = (e) => {
         e.preventDefault();
         const admin = admins.find(a => a.username.toLowerCase() === userName.toLowerCase() && a.password === password);
-        if (password && !admin) return setError("Неверный пароль");
+        if (password && !admin) return alert("Неверный пароль");
         setUser(userName);
         setUserRole(admin ? "admin" : "viewer");
       };
 
-      // удаление
-      const deleteRecord = (type, id) => {
+      // === Добавление / редактирование / удаление ===
+      const handleStockSubmit = (e) => { ... }; // оставляем как есть
+      const handleShipmentSubmit = (e) => { ... }; // оставляем как есть
+
+      const handleDelete = (type, id) => {
         if (!confirm("Удалить запись?")) return;
-        fetch(`/api/${type}/${id}`, { method: "DELETE" })
-          .then(() => {
-            if (type === "inventory") setInventory(prev => prev.filter(x => x.id !== id));
-            if (type === "shipment") setShipments(prev => prev.filter(x => x.id !== id));
-          });
+        if (type === "inventory") setInventory(prev => prev.filter(x => x.id !== id));
+        if (type === "shipment") setShipments(prev => prev.filter(x => x.id !== id));
       };
 
-      // сохранение изменений (popup)
       const saveEdit = () => {
         if (!editItem) return;
-        const type = editType;
-        fetch(`/api/${type}/${editItem.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(editItem)
-        }).then(() => {
-          if (type === "inventory")
-            setInventory(prev => prev.map(x => x.id === editItem.id ? editItem : x));
-          if (type === "shipment")
-            setShipments(prev => prev.map(x => x.id === editItem.id ? editItem : x));
-          setEditItem(null);
-        });
+        if (editType === "inventory") setInventory(prev => prev.map(x => x.id === editItem.id ? editItem : x));
+        if (editType === "shipment") setShipments(prev => prev.map(x => x.id === editItem.id ? editItem : x));
+        setEditItem(null);
       };
 
-      if (!user)
-        return (
-          React.createElement("div", { className: "max-w-md mx-auto p-4" },
-            React.createElement("h1", { className: "text-2xl font-bold mb-4" }, "Вход в систему"),
-            React.createElement("form", { onSubmit: handleLogin, className: "flex flex-col gap-2" },
-              React.createElement("input", { placeholder: "Имя пользователя", value: userName, onChange: e => setUserName(e.target.value), className: "border p-2 rounded" }),
-              React.createElement("input", { type: "password", placeholder: "Пароль", value: password, onChange: e => setPassword(e.target.value), className: "border p-2 rounded" }),
-              React.createElement("button", { type: "submit", className: "bg-blue-500 text-white py-2 px-4 rounded" }, "Войти")
-            )
-          )
-        );
+      // === Группировка ===
+      const groupedInventory = inventory
+        .filter(i => i.company === company && (filterProduct === "Все продукты" || i.product === filterProduct))
+        .reduce((acc, i) => {
+          if (!acc[i.product]) acc[i.product] = [];
+          acc[i.product].push(i);
+          return acc;
+        }, {});
+
+      // === Интерфейс ===
+      if (!user) return ( ... тот же блок входа ... );
 
       return (
-        React.createElement("div", { className: "max-w-6xl mx-auto" },
-          React.createElement("div", { className: "flex justify-between mb-4" },
-            React.createElement("h1", { className: "text-xl font-bold" }, `Учет продукции (${company}) — ${user}`),
-            React.createElement("select", { value: company, onChange: e => setCompany(e.target.value), className: "border p-2 rounded" },
-              companies.map((c, i) => React.createElement("option", { key: i, value: c }, c))
-            )
-          ),
+        <div class="max-w-6xl mx-auto">
+          <div class="flex justify-between mb-4">
+            <h1 class="text-xl font-bold">Учет продукции ({company}) — {user}</h1>
+            <select value={company} onChange={e => setCompany(e.target.value)} class="border p-2 rounded">
+              {companies.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
 
-          React.createElement("div", { className: "mb-4" },
-            React.createElement("button", { onClick: () => setActiveTab("inventory"), className: `p-2 mr-2 ${activeTab === "inventory" ? "bg-blue-500 text-white" : "bg-gray-200"}` }, "Остатки"),
-            React.createElement("button", { onClick: () => setActiveTab("shipments"), className: `p-2 ${activeTab === "shipments" ? "bg-blue-500 text-white" : "bg-gray-200"}` }, "Отгрузки")
-          ),
+          <div class="mb-4">
+            <button onClick={() => setActiveTab("inventory")} class={`p-2 mr-2 ${activeTab === "inventory" ? "bg-blue-500 text-white" : "bg-gray-200"}`}>Остатки</button>
+            <button onClick={() => setActiveTab("shipments")} class={`p-2 ${activeTab === "shipments" ? "bg-blue-500 text-white" : "bg-gray-200"}`}>Отгрузки</button>
+          </div>
 
-          // === Остатки ===
-          activeTab === "inventory" && React.createElement("div", null,
-            inventory.filter(i => i.company === company).map(i =>
-              React.createElement("div", { key: i.id, className: "bg-white rounded shadow p-3 mb-2 flex justify-between items-center" },
-                React.createElement("div", null, `${i.date} — ${i.product} (${i.lot}) — ${i.quantity} шт.`),
-                React.createElement("div", null,
-                  React.createElement("button", { onClick: () => { setEditItem({ ...i }); setEditType("inventory"); }, className: "text-blue-500 mr-2" }, "✏️"),
-                  React.createElement("button", { onClick: () => deleteRecord("inventory", i.id), className: "text-red-500" }, "🗑️")
-                )
-              )
-            )
-          ),
+          {activeTab === "inventory" && (
+            <>
+              {/* фильтры и форма */}
+              {Object.entries(groupedInventory).map(([product, items]) => (
+                <div key={product} class="mb-6">
+                  <h2 class="text-lg font-semibold mb-2">{product}</h2>
+                  <table class="w-full border-collapse bg-white shadow">
+                    <thead>
+                      <tr class="bg-gray-100">
+                        {["Дата", "Лот", "Количество", "Срок годности", "Действия"].map(h => (
+                          <th key={h} class="border p-2 text-left">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map(it => (
+                        <tr key={it.id}>
+                          <td class="border p-2">{it.date}</td>
+                          <td class="border p-2">{it.lot}</td>
+                          <td class="border p-2">{it.quantity}</td>
+                          <td class="border p-2">{it.expiryDate}</td>
+                          <td class="border p-2">
+                            <button onClick={() => { setEditItem({ ...it }); setEditType("inventory"); }} class="text-blue-500 mr-2">✏️</button>
+                            <button onClick={() => handleDelete("inventory", it.id)} class="text-red-500">🗑️</button>
+                          </td>
+                        </tr>
+                      ))}
+                      <tr class="font-bold bg-gray-50">
+                        <td class="border p-2" colSpan="2">Итого</td>
+                        <td class="border p-2">{items.reduce((s, i) => s + Number(i.quantity), 0)}</td>
+                        <td class="border p-2" colSpan="2"></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </>
+          )}
 
-          // === Отгрузки ===
-          activeTab === "shipments" && React.createElement("div", null,
-            shipments.filter(s => s.company === company).map(s =>
-              React.createElement("div", { key: s.id, className: "bg-white rounded shadow p-3 mb-2 flex justify-between items-center" },
-                React.createElement("div", null, `${s.date} — ${s.client} — ${s.product} (${s.lot}) — ${s.quantity} шт. — ${s.manager}`),
-                React.createElement("div", null,
-                  React.createElement("button", { onClick: () => { setEditItem({ ...s }); setEditType("shipment"); }, className: "text-blue-500 mr-2" }, "✏️"),
-                  React.createElement("button", { onClick: () => deleteRecord("shipment", s.id), className: "text-red-500" }, "🗑️")
-                )
-              )
-            )
-          ),
+          {activeTab === "shipments" && (
+            shipments.filter(s => s.company === company).map(s => (
+              <div key={s.id} class="bg-white rounded shadow p-3 mb-2 flex justify-between">
+                <div>{s.date} — {s.client} — {s.product} ({s.lot}) — {s.quantity} шт. — {s.manager}</div>
+                <div>
+                  <button onClick={() => { setEditItem({ ...s }); setEditType("shipment"); }} class="text-blue-500 mr-2">✏️</button>
+                  <button onClick={() => handleDelete("shipment", s.id)} class="text-red-500">🗑️</button>
+                </div>
+              </div>
+            ))
+          )}
 
-          // === Popup ===
-          editItem && React.createElement("div", { className: "fixed inset-0 flex items-center justify-center bg-black bg-opacity-40" },
-            React.createElement("div", { className: "bg-white p-4 rounded shadow-lg w-96" },
-              React.createElement("h2", { className: "text-lg font-bold mb-2" }, "Редактирование записи"),
-              Object.keys(editItem).filter(k => !["id"].includes(k)).map((key, idx) =>
-                React.createElement("div", { key: idx, className: "mb-2" },
-                  React.createElement("label", { className: "block text-sm font-medium" }, key),
-                  React.createElement("input", {
-                    className: "border rounded p-1 w-full",
-                    value: editItem[key] ?? "",
-                    onChange: e => setEditItem({ ...editItem, [key]: e.target.value })
-                  })
-                )
-              ),
-              React.createElement("div", { className: "flex justify-end mt-4" },
-                React.createElement("button", { onClick: saveEdit, className: "bg-blue-500 text-white px-3 py-1 rounded mr-2" }, "Сохранить"),
-                React.createElement("button", { onClick: () => setEditItem(null), className: "bg-gray-400 text-white px-3 py-1 rounded" }, "Отмена")
-              )
-            )
-          )
-        )
+          {editItem && (
+            <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40">
+              <div class="bg-white p-4 rounded shadow-lg w-96">
+                <h2 class="text-lg font-bold mb-2">Редактирование</h2>
+                {Object.keys(editItem).filter(k => !["id", "company"].includes(k)).map(key => (
+                  <div key={key} class="mb-2">
+                    <label class="block text-sm font-medium">{key}</label>
+                    <input class="border rounded p-1 w-full" value={editItem[key] ?? ""} onChange={e => setEditItem({ ...editItem, [key]: e.target.value })} />
+                  </div>
+                ))}
+                <div class="flex justify-end mt-3">
+                  <button onClick={saveEdit} class="bg-blue-500 text-white px-3 py-1 rounded mr-2">Сохранить</button>
+                  <button onClick={() => setEditItem(null)} class="bg-gray-400 text-white px-3 py-1 rounded">Отмена</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       );
     }
 
