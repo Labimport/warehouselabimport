@@ -73,6 +73,8 @@
       useEffect(() => {
         if (!user) return;
         setLoading(true);
+        setInventory([]);
+        setShipments([]);
         fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`)
           .then(r => r.json())
           .then(data => {
@@ -84,7 +86,7 @@
             setClients([...new Set(shp.map(x => x.client).filter(Boolean))]);
             setManagers([...new Set(shp.map(x => x.manager).filter(Boolean))]);
           })
-          .catch(console.error)
+          .catch(err => console.error("Ошибка загрузки данных:", err))
           .finally(() => setLoading(false));
       }, [user, company]);
 
@@ -150,14 +152,8 @@
               : i
           )
         );
-        setClients(prev => {
-          if (newShipment.client && !prev.includes(newShipment.client)) return [...prev, newShipment.client];
-          return prev;
-        });
-        setManagers(prev => {
-          if (newShipment.manager && !prev.includes(newShipment.manager)) return [...prev, newShipment.manager];
-          return prev;
-        });
+        setClients(prev => newShipment.client && !prev.includes(newShipment.client) ? [...prev, newShipment.client] : prev);
+        setManagers(prev => newShipment.manager && !prev.includes(newShipment.manager) ? [...prev, newShipment.manager] : prev);
         setNewShipment({ ...newShipment, client: "", product: "", lot: "", quantity: "", manager: "" });
       };
 
@@ -203,8 +199,6 @@
           acc[i.product].push(i);
           return acc;
         }, {});
-
-      const totalQuantity = (items) => items.reduce((sum, i) => sum + Number(i.quantity || 0), 0);
 
       const deleteInventory = (id) => {
         if (!confirm("Удалить остаток?")) return;
@@ -256,7 +250,7 @@
           React.createElement("h1", { className: "text-2xl font-bold mb-4" }, "Вход в систему"),
           React.createElement("form", { onSubmit: handleLogin, className: "flex flex-col gap-2" },
             React.createElement("input", { placeholder: "Имя пользователя", value: userName, onChange: e => setUserName(e.target.value), className: "border p-2 rounded" }),
-            React.createElement("input", { type: "password", placeholder: "Пароль", value: password, onChange: e => setPassword(e.target.value), className: "border p-2 rounded" }),
+            React.createElement("input", { type: "password", placeholder: "Пароль (для админов)", value: password, onChange: e => setPassword(e.target.value), className: "border p-2 rounded" }),
             React.createElement("button", { type: "submit", className: "bg-blue-500 text-white py-2 px-4 rounded" }, "Войти")
           )
         );
@@ -285,7 +279,6 @@
             React.createElement("button", { onClick: exportInventory, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "⬇️ Экспорт")
           ),
 
-          // form
           userRole === "admin" && React.createElement("form", { onSubmit: handleStockSubmit, className: "flex flex-wrap gap-2 mb-6" },
             React.createElement("input", { type: "date", value: newStock.date, onChange: e => setNewStock(s => ({ ...s, date: e.target.value })), className: "border p-2 rounded" }),
             React.createElement("input", { list: "productList", placeholder: "Продукция", value: newStock.product, onChange: e => setNewStock(s => ({ ...s, product: e.target.value, lot: "" })), className: "border p-2 rounded" }),
@@ -296,7 +289,6 @@
             React.createElement("button", { type: "submit", className: "bg-green-500 text-white py-2 px-4 rounded" }, "Добавить")
           ),
 
-          // TABLE
           Object.entries(groupedInventory).map(([product, items]) =>
             React.createElement("div", { key: product, className: "mb-6" },
               React.createElement("h2", { className: "text-lg font-semibold mb-2" }, product),
@@ -313,16 +305,35 @@
                     editingInventoryId === it.id
                       ? React.createElement("tr", { key: it.id },
                           React.createElement("td", { className: "border p-2" },
-                            React.createElement("input", { type: "date", value: editingInventoryData.date, onChange: e => setEditingInventoryData(d => ({ ...d, date: e.target.value })), className: "border p-1 rounded w-full" })
+                            React.createElement("input", {
+                              className: "border p-1 rounded w-full",
+                              type: "date",
+                              value: editingInventoryData.date || "",
+                              onChange: e => setEditingInventoryData(d => ({ ...d, date: e.target.value }))
+                            })
                           ),
                           React.createElement("td", { className: "border p-2" },
-                            React.createElement("input", { value: editingInventoryData.lot, onChange: e => setEditingInventoryData(d => ({ ...d, lot: e.target.value })), className: "border p-1 rounded w-full" })
+                            React.createElement("input", {
+                              className: "border p-1 rounded w-full",
+                              value: editingInventoryData.lot || "",
+                              onChange: e => setEditingInventoryData(d => ({ ...d, lot: e.target.value }))
+                            })
                           ),
                           React.createElement("td", { className: "border p-2" },
-                            React.createElement("input", { type: "number", value: editingInventoryData.quantity, onChange: e => setEditingInventoryData(d => ({ ...d, quantity: e.target.value })), className: "border p-1 rounded w-full" })
+                            React.createElement("input", {
+                              className: "border p-1 rounded w-full",
+                              type: "number",
+                              value: editingInventoryData.quantity || "",
+                              onChange: e => setEditingInventoryData(d => ({ ...d, quantity: e.target.value }))
+                            })
                           ),
                           React.createElement("td", { className: "border p-2" },
-                            React.createElement("input", { type: "date", value: editingInventoryData.expiryDate, onChange: e => setEditingInventoryData(d => ({ ...d, expiryDate: e.target.value })), className: "border p-1 rounded w-full" })
+                            React.createElement("input", {
+                              className: "border p-1 rounded w-full",
+                              type: "date",
+                              value: editingInventoryData.expiryDate || "",
+                              onChange: e => setEditingInventoryData(d => ({ ...d, expiryDate: e.target.value }))
+                            })
                           ),
                           React.createElement("td", { className: "border p-2" },
                             React.createElement("button", { onClick: saveEditInventory, className: "bg-green-500 text-white px-2 py-1 rounded mr-2" }, "💾"),
@@ -335,19 +346,18 @@
                           React.createElement("td", { className: "border p-2" }, it.quantity),
                           React.createElement("td", { className: "border p-2" }, it.expiryDate),
                           React.createElement("td", { className: "border p-2" },
-                            userRole === "admin"
-                              ? React.createElement("span", null,
-                                  React.createElement("button", { onClick: () => startEditInventory(it), className: "text-blue-500 mr-2" }, "✏️"),
-                                  React.createElement("button", { onClick: () => deleteInventory(it.id), className: "text-red-500" }, "🗑️")
-                                )
-                              : "-"
+                            userRole === "admin" ? React.createElement("span", null,
+                              React.createElement("button", { onClick: () => startEditInventory(it), className: "text-blue-500 mr-2" }, "✏️"),
+                              React.createElement("button", { onClick: () => deleteInventory(it.id), className: "text-red-500" }, "🗑️")
+                            ) : React.createElement("span", null, "-")
                           )
                         )
                   ),
-                  // <== добавлена строка с суммой
-                  React.createElement("tr", { className: "bg-gray-50 font-semibold" },
-                    React.createElement("td", { className: "border p-2 text-right", colSpan: 2 }, "Итого по продукции:"),
-                    React.createElement("td", { className: "border p-2" }, totalQuantity(items)),
+                  React.createElement("tr", { className: "font-bold bg-gray-50" },
+                    React.createElement("td", { className: "border p-2", colSpan: 2 }, "Итого по продукции"),
+                    React.createElement("td", { className: "border p-2" },
+                      items.reduce((sum, i) => sum + Number(i.quantity || 0), 0)
+                    ),
                     React.createElement("td", { className: "border p-2", colSpan: 2 })
                   )
                 )
@@ -376,12 +386,12 @@
               editingShipmentId === s.id
                 ? React.createElement("div", { key: s.id, className: "bg-white rounded shadow p-3 mb-2" },
                     React.createElement("div", { className: "flex flex-wrap gap-2" },
-                      React.createElement("input", { type: "date", value: editingShipmentData.date, onChange: e => setEditingShipmentData(d => ({ ...d, date: e.target.value })), className: "border p-2 rounded" }),
-                      React.createElement("input", { value: editingShipmentData.client, onChange: e => setEditingShipmentData(d => ({ ...d, client: e.target.value })), list: "clientList", className: "border p-2 rounded", placeholder: "Клиент" }),
-                      React.createElement("input", { value: editingShipmentData.product, onChange: e => setEditingShipmentData(d => ({ ...d, product: e.target.value })), list: "productShipList", className: "border p-2 rounded", placeholder: "Продукция" }),
-                      React.createElement("input", { value: editingShipmentData.lot, onChange: e => setEditingShipmentData(d => ({ ...d, lot: e.target.value })), className: "border p-2 rounded", placeholder: "Лот" }),
-                      React.createElement("input", { type: "number", value: editingShipmentData.quantity, onChange: e => setEditingShipmentData(d => ({ ...d, quantity: e.target.value })), className: "border p-2 rounded", placeholder: "Количество" }),
-                      React.createElement("input", { value: editingShipmentData.manager, onChange: e => setEditingShipmentData(d => ({ ...d, manager: e.target.value })), className: "border p-2 rounded", placeholder: "Менеджер" }),
+                      React.createElement("input", { type: "date", value: editingShipmentData.date || "", onChange: e => setEditingShipmentData(d => ({ ...d, date: e.target.value })), className: "border p-2 rounded" }),
+                      React.createElement("input", { value: editingShipmentData.client || "", onChange: e => setEditingShipmentData(d => ({ ...d, client: e.target.value })), list: "clientList", className: "border p-2 rounded", placeholder: "Клиент" }),
+                      React.createElement("input", { value: editingShipmentData.product || "", onChange: e => setEditingShipmentData(d => ({ ...d, product: e.target.value })), list: "productShipList", className: "border p-2 rounded", placeholder: "Продукция" }),
+                      React.createElement("input", { value: editingShipmentData.lot || "", onChange: e => setEditingShipmentData(d => ({ ...d, lot: e.target.value })), className: "border p-2 rounded", placeholder: "Лот" }),
+                      React.createElement("input", { type: "number", value: editingShipmentData.quantity || "", onChange: e => setEditingShipmentData(d => ({ ...d, quantity: e.target.value })), className: "border p-2 rounded", placeholder: "Количество" }),
+                      React.createElement("input", { value: editingShipmentData.manager || "", onChange: e => setEditingShipmentData(d => ({ ...d, manager: e.target.value })), className: "border p-2 rounded", placeholder: "Менеджер" }),
                       React.createElement("div", { className: "ml-auto" },
                         React.createElement("button", { onClick: saveEditShipment, className: "bg-green-500 text-white px-3 py-1 rounded mr-2" }, "💾"),
                         React.createElement("button", { onClick: cancelEditShipment, className: "bg-gray-400 text-white px-3 py-1 rounded" }, "✖")
@@ -391,13 +401,11 @@
                 : React.createElement("div", { key: s.id, className: "bg-white rounded shadow p-3 mb-2" },
                     React.createElement("div", { className: "flex justify-between" },
                       React.createElement("div", null, `${s.date} — ${s.client} — ${s.product} (${s.lot})`),
-                      React.createElement("div", null, userRole === "admin"
-                        ? React.createElement("span", null,
-                            `${s.quantity} шт. — ${s.manager} `,
-                            React.createElement("button", { onClick: () => startEditShipment(s), className: "text-blue-500 mr-2" }, "✏️"),
-                            React.createElement("button", { onClick: () => deleteShipment(s.id), className: "text-red-500" }, "🗑️")
-                          )
-                        : `${s.quantity} шт. — ${s.manager}`)
+                      React.createElement("div", null, userRole === "admin" ? React.createElement("span", null,
+                        `${s.quantity} шт. — ${s.manager} `,
+                        React.createElement("button", { onClick: () => { setEditingShipmentId(s.id); setEditingShipmentData({ ...s, quantity: String(s.quantity) }); }, className: "text-blue-500 mr-2" }, "✏️"),
+                        React.createElement("button", { onClick: () => deleteShipment(s.id), className: "text-red-500" }, "🗑️")
+                      ) : `${s.quantity} шт. — ${s.manager}`)
                     )
                   )
             ),
