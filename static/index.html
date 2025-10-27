@@ -17,7 +17,6 @@
     const { useState, useEffect, useRef } = React;
 
     function App() {
-      // --- state (как было)
       const [user, setUser] = useState(null);
       const [userRole, setUserRole] = useState(null);
       const [userName, setUserName] = useState("");
@@ -50,10 +49,8 @@
       const [filterProduct, setFilterProduct] = useState("Все продукты");
       const [loading, setLoading] = useState(false);
 
-      // --- editing state: inventory row and shipment row
       const [editingInventoryId, setEditingInventoryId] = useState(null);
       const [editingInventoryData, setEditingInventoryData] = useState(null);
-
       const [editingShipmentId, setEditingShipmentId] = useState(null);
       const [editingShipmentData, setEditingShipmentData] = useState(null);
 
@@ -66,7 +63,6 @@
         { username: "Дмитрий", password: "12345678dd" }
       ];
 
-      // === load companies ===
       useEffect(() => {
         fetch(`${API_ORIGIN}/api/companies`)
           .then(r => r.json())
@@ -74,12 +70,9 @@
           .catch(() => setCompanies(["БТТ", "ЛИ"]));
       }, []);
 
-      // === load data for user + company (as before) ===
       useEffect(() => {
         if (!user) return;
         setLoading(true);
-        setInventory([]);
-        setShipments([]);
         fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`)
           .then(r => r.json())
           .then(data => {
@@ -91,13 +84,10 @@
             setClients([...new Set(shp.map(x => x.client).filter(Boolean))]);
             setManagers([...new Set(shp.map(x => x.manager).filter(Boolean))]);
           })
-          .catch(err => {
-            console.error("Ошибка загрузки данных:", err);
-          })
+          .catch(console.error)
           .finally(() => setLoading(false));
       }, [user, company]);
 
-      // === autosave (as before) ===
       useEffect(() => {
         if (!user || userRole !== "admin") return;
         if (saveTimeout.current) clearTimeout(saveTimeout.current);
@@ -111,7 +101,6 @@
         return () => clearTimeout(saveTimeout.current);
       }, [inventory, shipments, company]);
 
-      // === auth (as before) ===
       const handleLogin = (e) => {
         e.preventDefault();
         const admin = admins.find(a => a.username.toLowerCase() === userName.toLowerCase() && a.password === password);
@@ -120,7 +109,6 @@
         setUserRole(admin ? "admin" : "viewer");
       };
 
-      // === add stock & shipment (as before) ===
       const handleStockSubmit = (e) => {
         e.preventDefault();
         if (userRole !== "admin") return;
@@ -162,7 +150,6 @@
               : i
           )
         );
-        // keep clients/managers lists so datalist works next time
         setClients(prev => {
           if (newShipment.client && !prev.includes(newShipment.client)) return [...prev, newShipment.client];
           return prev;
@@ -174,7 +161,6 @@
         setNewShipment({ ...newShipment, client: "", product: "", lot: "", quantity: "", manager: "" });
       };
 
-      // === export functions (as before) ===
       const exportInventory = () => {
         const data = inventory
           .filter(i => i.company === company)
@@ -210,7 +196,6 @@
         saveAs(new Blob([wbout], { type: "application/octet-stream" }), `Отгрузки_${company}.xlsx`);
       };
 
-      // === grouping for inventory (as before) ===
       const groupedInventory = inventory
         .filter(i => i.company === company && (filterProduct === "Все продукты" || i.product === filterProduct))
         .reduce((acc, i) => {
@@ -219,7 +204,8 @@
           return acc;
         }, {});
 
-      // === delete functions (with confirm) ===
+      const totalQuantity = (items) => items.reduce((sum, i) => sum + Number(i.quantity || 0), 0);
+
       const deleteInventory = (id) => {
         if (!confirm("Удалить остаток?")) return;
         setInventory(prev => prev.filter(i => i.id !== id));
@@ -229,10 +215,8 @@
         setShipments(prev => prev.filter(s => s.id !== id));
       };
 
-      // === start editing inventory row ===
       const startEditInventory = (item) => {
         setEditingInventoryId(item.id);
-        // clone fields, ensure types for inputs
         setEditingInventoryData({ ...item, quantity: String(item.quantity) });
       };
       const cancelEditInventory = () => {
@@ -245,17 +229,10 @@
           ...editingInventoryData,
           quantity: Number(editingInventoryData.quantity)
         } : i));
-        // update product list if product renamed
-        setProducts(prev => {
-          const pSet = new Set(prev);
-          if (editingInventoryData.product) pSet.add(editingInventoryData.product);
-          return Array.from(pSet);
-        });
         setEditingInventoryId(null);
         setEditingInventoryData(null);
       };
 
-      // === start editing shipment row ===
       const startEditShipment = (row) => {
         setEditingShipmentId(row.id);
         setEditingShipmentData({ ...row, quantity: String(row.quantity) });
@@ -270,41 +247,22 @@
           ...editingShipmentData,
           quantity: Number(editingShipmentData.quantity)
         } : s));
-        // update clients/managers/products lists
-        setClients(prev => {
-          const p = new Set(prev);
-          if (editingShipmentData.client) p.add(editingShipmentData.client);
-          return Array.from(p);
-        });
-        setManagers(prev => {
-          const p = new Set(prev);
-          if (editingShipmentData.manager) p.add(editingShipmentData.manager);
-          return Array.from(p);
-        });
-        setProducts(prev => {
-          const p = new Set(prev);
-          if (editingShipmentData.product) p.add(editingShipmentData.product);
-          return Array.from(p);
-        });
         setEditingShipmentId(null);
         setEditingShipmentData(null);
       };
 
-      // --- UI render ---
       if (!user) {
         return React.createElement("div", { className: "max-w-md mx-auto p-4" },
           React.createElement("h1", { className: "text-2xl font-bold mb-4" }, "Вход в систему"),
           React.createElement("form", { onSubmit: handleLogin, className: "flex flex-col gap-2" },
             React.createElement("input", { placeholder: "Имя пользователя", value: userName, onChange: e => setUserName(e.target.value), className: "border p-2 rounded" }),
-            React.createElement("input", { type: "password", placeholder: "Пароль (для админов)", value: password, onChange: e => setPassword(e.target.value), className: "border p-2 rounded" }),
+            React.createElement("input", { type: "password", placeholder: "Пароль", value: password, onChange: e => setPassword(e.target.value), className: "border p-2 rounded" }),
             React.createElement("button", { type: "submit", className: "bg-blue-500 text-white py-2 px-4 rounded" }, "Войти")
           )
         );
       }
 
-      // main
       return React.createElement("div", { className: "max-w-6xl mx-auto" },
-        // header
         React.createElement("div", { className: "flex justify-between mb-4" },
           React.createElement("h1", { className: "text-xl font-bold" }, `Учет продукции (${company}) — ${user}`),
           React.createElement("select", { value: company, onChange: e => setCompany(e.target.value), className: "border p-2 rounded" },
@@ -312,15 +270,12 @@
           )
         ),
 
-        // tabs
         React.createElement("div", { className: "mb-4" },
           React.createElement("button", { onClick: () => setActiveTab("inventory"), className: `p-2 mr-2 ${activeTab === "inventory" ? "bg-blue-500 text-white" : "bg-gray-200"}` }, "Остатки"),
           React.createElement("button", { onClick: () => setActiveTab("shipments"), className: `p-2 ${activeTab === "shipments" ? "bg-blue-500 text-white" : "bg-gray-200"}` }, "Отгрузки")
         ),
 
-        // --- INVENTORY TAB ---
         activeTab === "inventory" && React.createElement("div", null,
-          // filter + export + add form (as before)
           React.createElement("div", { className: "flex items-center gap-3 mb-4" },
             React.createElement("label", null, "Фильтр по продукции:"),
             React.createElement("select", { value: filterProduct, onChange: e => setFilterProduct(e.target.value), className: "border p-2 rounded" },
@@ -330,6 +285,7 @@
             React.createElement("button", { onClick: exportInventory, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "⬇️ Экспорт")
           ),
 
+          // form
           userRole === "admin" && React.createElement("form", { onSubmit: handleStockSubmit, className: "flex flex-wrap gap-2 mb-6" },
             React.createElement("input", { type: "date", value: newStock.date, onChange: e => setNewStock(s => ({ ...s, date: e.target.value })), className: "border p-2 rounded" }),
             React.createElement("input", { list: "productList", placeholder: "Продукция", value: newStock.product, onChange: e => setNewStock(s => ({ ...s, product: e.target.value, lot: "" })), className: "border p-2 rounded" }),
@@ -340,7 +296,7 @@
             React.createElement("button", { type: "submit", className: "bg-green-500 text-white py-2 px-4 rounded" }, "Добавить")
           ),
 
-          // grouped inventory tables (with edit/delete controls)
+          // TABLE
           Object.entries(groupedInventory).map(([product, items]) =>
             React.createElement("div", { key: product, className: "mb-6" },
               React.createElement("h2", { className: "text-lg font-semibold mb-2" }, product),
@@ -354,39 +310,19 @@
                 ),
                 React.createElement("tbody", null,
                   items.map(it =>
-                    // if this item is in edit mode -> show inputs, else normal row
                     editingInventoryId === it.id
                       ? React.createElement("tr", { key: it.id },
                           React.createElement("td", { className: "border p-2" },
-                            React.createElement("input", {
-                              className: "border p-1 rounded w-full",
-                              type: "date",
-                              value: editingInventoryData.date || "",
-                              onChange: e => setEditingInventoryData(d => ({ ...d, date: e.target.value }))
-                            })
+                            React.createElement("input", { type: "date", value: editingInventoryData.date, onChange: e => setEditingInventoryData(d => ({ ...d, date: e.target.value })), className: "border p-1 rounded w-full" })
                           ),
                           React.createElement("td", { className: "border p-2" },
-                            React.createElement("input", {
-                              className: "border p-1 rounded w-full",
-                              value: editingInventoryData.lot || "",
-                              onChange: e => setEditingInventoryData(d => ({ ...d, lot: e.target.value }))
-                            })
+                            React.createElement("input", { value: editingInventoryData.lot, onChange: e => setEditingInventoryData(d => ({ ...d, lot: e.target.value })), className: "border p-1 rounded w-full" })
                           ),
                           React.createElement("td", { className: "border p-2" },
-                            React.createElement("input", {
-                              className: "border p-1 rounded w-full",
-                              type: "number",
-                              value: editingInventoryData.quantity || "",
-                              onChange: e => setEditingInventoryData(d => ({ ...d, quantity: e.target.value }))
-                            })
+                            React.createElement("input", { type: "number", value: editingInventoryData.quantity, onChange: e => setEditingInventoryData(d => ({ ...d, quantity: e.target.value })), className: "border p-1 rounded w-full" })
                           ),
                           React.createElement("td", { className: "border p-2" },
-                            React.createElement("input", {
-                              className: "border p-1 rounded w-full",
-                              type: "date",
-                              value: editingInventoryData.expiryDate || "",
-                              onChange: e => setEditingInventoryData(d => ({ ...d, expiryDate: e.target.value }))
-                            })
+                            React.createElement("input", { type: "date", value: editingInventoryData.expiryDate, onChange: e => setEditingInventoryData(d => ({ ...d, expiryDate: e.target.value })), className: "border p-1 rounded w-full" })
                           ),
                           React.createElement("td", { className: "border p-2" },
                             React.createElement("button", { onClick: saveEditInventory, className: "bg-green-500 text-white px-2 py-1 rounded mr-2" }, "💾"),
@@ -399,13 +335,20 @@
                           React.createElement("td", { className: "border p-2" }, it.quantity),
                           React.createElement("td", { className: "border p-2" }, it.expiryDate),
                           React.createElement("td", { className: "border p-2" },
-                            // only admin can edit/delete (same behavior as add)
-                            userRole === "admin" ? React.createElement("span", null,
-                              React.createElement("button", { onClick: () => startEditInventory(it), className: "text-blue-500 mr-2" }, "✏️"),
-                              React.createElement("button", { onClick: () => deleteInventory(it.id), className: "text-red-500" }, "🗑️")
-                            ) : React.createElement("span", null, "-")
+                            userRole === "admin"
+                              ? React.createElement("span", null,
+                                  React.createElement("button", { onClick: () => startEditInventory(it), className: "text-blue-500 mr-2" }, "✏️"),
+                                  React.createElement("button", { onClick: () => deleteInventory(it.id), className: "text-red-500" }, "🗑️")
+                                )
+                              : "-"
                           )
                         )
+                  ),
+                  // <== добавлена строка с суммой
+                  React.createElement("tr", { className: "bg-gray-50 font-semibold" },
+                    React.createElement("td", { className: "border p-2 text-right", colSpan: 2 }, "Итого по продукции:"),
+                    React.createElement("td", { className: "border p-2" }, totalQuantity(items)),
+                    React.createElement("td", { className: "border p-2", colSpan: 2 })
                   )
                 )
               )
@@ -413,9 +356,7 @@
           )
         ),
 
-        // --- SHIPMENTS TAB ---
         activeTab === "shipments" && React.createElement("div", null,
-          // form for add (as before)
           React.createElement("form", { onSubmit: handleShipmentSubmit, className: "flex flex-wrap gap-2 mb-4" },
             React.createElement("input", { type: "date", value: newShipment.date, onChange: e => setNewShipment(s => ({ ...s, date: e.target.value })), className: "border p-2 rounded" }),
             React.createElement("input", { list: "clientList", placeholder: "Клиент", value: newShipment.client, onChange: e => setNewShipment(s => ({ ...s, client: e.target.value })), className: "border p-2 rounded" }),
@@ -430,18 +371,17 @@
             React.createElement("button", { type: "submit", className: "bg-green-500 text-white py-2 px-4 rounded" }, "Добавить")
           ),
 
-          // shipments list with edit/delete per row (inline editing)
           shipments.filter(s => s.company === company)
             .map(s =>
               editingShipmentId === s.id
                 ? React.createElement("div", { key: s.id, className: "bg-white rounded shadow p-3 mb-2" },
                     React.createElement("div", { className: "flex flex-wrap gap-2" },
-                      React.createElement("input", { type: "date", value: editingShipmentData.date || "", onChange: e => setEditingShipmentData(d => ({ ...d, date: e.target.value })), className: "border p-2 rounded" }),
-                      React.createElement("input", { value: editingShipmentData.client || "", onChange: e => setEditingShipmentData(d => ({ ...d, client: e.target.value })), list: "clientList", className: "border p-2 rounded", placeholder: "Клиент" }),
-                      React.createElement("input", { value: editingShipmentData.product || "", onChange: e => setEditingShipmentData(d => ({ ...d, product: e.target.value })), list: "productShipList", className: "border p-2 rounded", placeholder: "Продукция" }),
-                      React.createElement("input", { value: editingShipmentData.lot || "", onChange: e => setEditingShipmentData(d => ({ ...d, lot: e.target.value })), className: "border p-2 rounded", placeholder: "Лот" }),
-                      React.createElement("input", { type: "number", value: editingShipmentData.quantity || "", onChange: e => setEditingShipmentData(d => ({ ...d, quantity: e.target.value })), className: "border p-2 rounded", placeholder: "Количество" }),
-                      React.createElement("input", { value: editingShipmentData.manager || "", onChange: e => setEditingShipmentData(d => ({ ...d, manager: e.target.value })), className: "border p-2 rounded", placeholder: "Менеджер" }),
+                      React.createElement("input", { type: "date", value: editingShipmentData.date, onChange: e => setEditingShipmentData(d => ({ ...d, date: e.target.value })), className: "border p-2 rounded" }),
+                      React.createElement("input", { value: editingShipmentData.client, onChange: e => setEditingShipmentData(d => ({ ...d, client: e.target.value })), list: "clientList", className: "border p-2 rounded", placeholder: "Клиент" }),
+                      React.createElement("input", { value: editingShipmentData.product, onChange: e => setEditingShipmentData(d => ({ ...d, product: e.target.value })), list: "productShipList", className: "border p-2 rounded", placeholder: "Продукция" }),
+                      React.createElement("input", { value: editingShipmentData.lot, onChange: e => setEditingShipmentData(d => ({ ...d, lot: e.target.value })), className: "border p-2 rounded", placeholder: "Лот" }),
+                      React.createElement("input", { type: "number", value: editingShipmentData.quantity, onChange: e => setEditingShipmentData(d => ({ ...d, quantity: e.target.value })), className: "border p-2 rounded", placeholder: "Количество" }),
+                      React.createElement("input", { value: editingShipmentData.manager, onChange: e => setEditingShipmentData(d => ({ ...d, manager: e.target.value })), className: "border p-2 rounded", placeholder: "Менеджер" }),
                       React.createElement("div", { className: "ml-auto" },
                         React.createElement("button", { onClick: saveEditShipment, className: "bg-green-500 text-white px-3 py-1 rounded mr-2" }, "💾"),
                         React.createElement("button", { onClick: cancelEditShipment, className: "bg-gray-400 text-white px-3 py-1 rounded" }, "✖")
@@ -451,16 +391,17 @@
                 : React.createElement("div", { key: s.id, className: "bg-white rounded shadow p-3 mb-2" },
                     React.createElement("div", { className: "flex justify-between" },
                       React.createElement("div", null, `${s.date} — ${s.client} — ${s.product} (${s.lot})`),
-                      React.createElement("div", null, userRole === "admin" ? React.createElement("span", null,
-                        `${s.quantity} шт. — ${s.manager} `,
-                        React.createElement("button", { onClick: () => { setEditingShipmentId(s.id); setEditingShipmentData({ ...s, quantity: String(s.quantity) }); }, className: "text-blue-500 mr-2" }, "✏️"),
-                        React.createElement("button", { onClick: () => deleteShipment(s.id), className: "text-red-500" }, "🗑️")
-                      ) : `${s.quantity} шт. — ${s.manager}`)
+                      React.createElement("div", null, userRole === "admin"
+                        ? React.createElement("span", null,
+                            `${s.quantity} шт. — ${s.manager} `,
+                            React.createElement("button", { onClick: () => startEditShipment(s), className: "text-blue-500 mr-2" }, "✏️"),
+                            React.createElement("button", { onClick: () => deleteShipment(s.id), className: "text-red-500" }, "🗑️")
+                          )
+                        : `${s.quantity} шт. — ${s.manager}`)
                     )
                   )
             ),
 
-          // export button for shipments (kept)
           React.createElement("div", { className: "mt-3" },
             React.createElement("button", { onClick: exportShipments, className: "bg-green-600 text-white px-4 py-2 rounded" }, "⬇️ Экспорт")
           )
