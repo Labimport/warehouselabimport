@@ -1,226 +1,14 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Учет продукции на складе</title>
-  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
-</head>
-
-<body class="bg-gray-50">
-  <div id="root" class="p-4"></div>
-  <script>
-    const { useState, useEffect, useRef } = React;
-
-    function App() {
-      const [user, setUser] = useState(null);
-      const [userRole, setUserRole] = useState(null);
-      const [userName, setUserName] = useState("");
-      const [password, setPassword] = useState("");
-      const [inventory, setInventory] = useState([]);
-      const [shipments, setShipments] = useState([]);
-      const [newStock, setNewStock] = useState({
-        date: new Date().toISOString().split("T")[0],
-        product: "",
-        lot: "",
-        quantity: "",
-        expiryDate: "",
-        company: "БТТ"
-      });
-      const [newShipment, setNewShipment] = useState({
-        date: new Date().toISOString().split("T")[0],
-        client: "",
-        product: "",
-        lot: "",
-        quantity: "",
-        manager: "",
-        company: "БТТ"
-      });
-
-      const [activeTab, setActiveTab] = useState("inventory");
-      const [companies, setCompanies] = useState([]);
-      const [company, setCompany] = useState("БТТ");
-      const [products, setProducts] = useState([]);
-      const [clients, setClients] = useState([]);
-      const [managers, setManagers] = useState([]);
-      const [filterProduct, setFilterProduct] = useState("Все продукты");
-
-      // фильтры для отгрузок
-      const [filterDateFrom, setFilterDateFrom] = useState("");
-      const [filterDateTo, setFilterDateTo] = useState("");
-      const [filterShipProduct, setFilterShipProduct] = useState("Все продукты");
-      const [filterClient, setFilterClient] = useState("Все клиенты");
-      const [filterManager, setFilterManager] = useState("Все менеджеры");
-
-      const saveTimeout = useRef(null);
-      const API_ORIGIN = window.location.origin;
-
-      const admins = [
-        { username: "Леонид", password: "12345678lm" },
-        { username: "Ольга", password: "12345678oc" },
-        { username: "Дмитрий", password: "12345678dd" }
-      ];
-
-      // автологин
-      useEffect(() => {
-        const savedUser = localStorage.getItem("user");
-        const savedPass = localStorage.getItem("pass");
-        if (savedUser) {
-          const admin = admins.find(a => a.username === savedUser && a.password === savedPass);
-          setUser(savedUser);
-          setUserRole(admin ? "admin" : "viewer");
-          setUserName(savedUser);
-          setPassword(savedPass || "");
-        }
-      }, []);
-
-      useEffect(() => {
-        fetch(`${API_ORIGIN}/api/companies`)
-          .then(r => r.json())
-          .then(d => setCompanies(d || ["БТТ", "ЛИ"]))
-          .catch(() => setCompanies(["БТТ", "ЛИ"]));
-      }, []);
-
-      useEffect(() => {
-        if (!user) return;
-        fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`)
-          .then(r => r.json())
-          .then(data => {
-            const inv = (data.inventory || []).map((it, i) => ({ ...it, id: it.id || `inv_${Date.now()}_${i}` }));
-            const shp = (data.shipments || []).map((it, i) => ({ ...it, id: it.id || `ship_${Date.now()}_${i}` }));
-            setInventory(inv);
-            setShipments(shp);
-            setProducts([...new Set(inv.map(x => x.product).filter(Boolean))]);
-            setClients([...new Set(shp.map(x => x.client).filter(Boolean))]);
-            setManagers([...new Set(shp.map(x => x.manager).filter(Boolean))]);
-          })
-          .catch(console.error);
-      }, [user, company]);
-
-      useEffect(() => {
-        if (!user || userRole !== "admin") return;
-        if (saveTimeout.current) clearTimeout(saveTimeout.current);
-        saveTimeout.current = setTimeout(() => {
-          fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ inventory, shipments })
-          }).catch(console.error);
-        }, 800);
-        return () => clearTimeout(saveTimeout.current);
-      }, [inventory, shipments, company]);
-
-      const handleLogin = (e) => {
-        e.preventDefault();
-        const admin = admins.find(a => a.username.toLowerCase() === userName.toLowerCase() && a.password === password);
-        if (password && !admin) return alert("Неверный пароль");
-        setUser(userName);
-        setUserRole(admin ? "admin" : "viewer");
-        localStorage.setItem("user", userName);
-        localStorage.setItem("pass", password);
-      };
-
-      const handleStockSubmit = (e) => {
-        e.preventDefault();
-        if (userRole !== "admin") return;
-        const existing = inventory.find(i => i.product === newStock.product && i.lot === newStock.lot && i.company === company);
-        if (existing) {
-          setInventory(inv => inv.map(i => i.id === existing.id ? { ...i, quantity: Number(i.quantity) + Number(newStock.quantity) } : i));
-        } else {
-          const id = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-          setInventory(inv => [...inv, { ...newStock, id, quantity: Number(newStock.quantity), company }]);
-        }
-        setNewStock({ ...newStock, product: "", lot: "", quantity: "", expiryDate: "" });
-      };
-
-      const handleShipmentSubmit = (e) => {
-        e.preventDefault();
-        if (userRole !== "admin") return;
-        const stock = inventory.find(i => i.product === newShipment.product && i.lot === newShipment.lot && i.company === company);
-        if (!stock || stock.quantity < Number(newShipment.quantity)) return alert("Недостаточно на складе!");
-        const id = `ship_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-        setShipments(s => [...s, { ...newShipment, id, quantity: Number(newShipment.quantity), company }]);
-        setInventory(inv => inv.map(i =>
-          i.product === newShipment.product && i.lot === newShipment.lot && i.company === company
-            ? { ...i, quantity: i.quantity - newShipment.quantity }
-            : i
-        ));
-        setClients(prev => newShipment.client && !prev.includes(newShipment.client) ? [...prev, newShipment.client] : prev);
-        setManagers(prev => newShipment.manager && !prev.includes(newShipment.manager) ? [...prev, newShipment.manager] : prev);
-        setNewShipment({ ...newShipment, client: "", product: "", lot: "", quantity: "", manager: "" });
-      };
-
-      const exportInventory = () => {
-        const data = inventory.filter(i => i.company === company).map(i => ({
-          Дата: i.date, Продукция: i.product, Лот: i.lot, Количество: i.quantity, "Срок годности": i.expiryDate
-        }));
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Остатки");
-        saveAs(new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })]), `Остатки_${company}.xlsx`);
-      };
-
-      const exportShipments = () => {
-        const data = shipments.filter(s => s.company === company).map(s => ({
-          Дата: s.date, Клиент: s.client, Продукция: s.product, Лот: s.lot, Количество: s.quantity, Менеджер: s.manager
-        }));
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Отгрузки");
-        saveAs(new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })]), `Отгрузки_${company}.xlsx`);
-      };
-
-      const groupedInventory = inventory
-        .filter(i => i.company === company && (filterProduct === "Все продукты" || i.product === filterProduct))
-        .reduce((acc, i) => {
-          if (!acc[i.product]) acc[i.product] = [];
-          acc[i.product].push(i);
-          return acc;
-        }, {});
-
-      const filteredShipments = shipments
-        .filter(s => s.company === company)
-        .filter(s =>
-          (!filterDateFrom || s.date >= filterDateFrom) &&
-          (!filterDateTo || s.date <= filterDateTo) &&
-          (filterShipProduct === "Все продукты" || s.product === filterShipProduct) &&
-          (filterClient === "Все клиенты" || s.client === filterClient) &&
-          (filterManager === "Все менеджеры" || s.manager === filterManager)
-        );
-
-      const deleteInventory = (id) => confirm("Удалить остаток?") && setInventory(prev => prev.filter(i => i.id !== id));
-      const deleteShipment = (id) => confirm("Удалить отгрузку?") && setShipments(prev => prev.filter(s => s.id !== id));
-
-      if (!user) return (
-        React.createElement("div", { className: "max-w-md mx-auto p-4" },
-          React.createElement("h1", { className: "text-2xl font-bold mb-4" }, "Вход в систему"),
-          React.createElement("form", { onSubmit: handleLogin, className: "flex flex-col gap-2" },
-            React.createElement("input", { placeholder: "Имя пользователя", value: userName, onChange: e => setUserName(e.target.value), className: "border p-2 rounded" }),
-            React.createElement("input", { type: "password", placeholder: "Пароль (для админов)", value: password, onChange: e => setPassword(e.target.value), className: "border p-2 rounded" }),
-            React.createElement("button", { type: "submit", className: "bg-blue-500 text-white py-2 px-4 rounded" }, "Войти")
-          )
-        )
-      );
-
-      return (
-        React.createElement("div", { className: "max-w-6xl mx-auto" },
-          React.createElement("div", { className: "flex justify-between mb-4" },
-            React.createElement("h1", { className: "text-xl font-bold" }, `Учет продукции (${company}) — ${user}`),
-            React.createElement("select", { value: company, onChange: e => setCompany(e.target.value), className: "border p-2 rounded" },
-              companies.map(c => React.createElement("option", { key: c }, c))
-            )
-          ),
-
           React.createElement("div", { className: "mb-4" },
-            React.createElement("button", { onClick: () => setActiveTab("inventory"), className: `p-2 mr-2 ${activeTab === "inventory" ? "bg-blue-500 text-white" : "bg-gray-200"}` }, "Остатки"),
-            React.createElement("button", { onClick: () => setActiveTab("shipments"), className: `p-2 ${activeTab === "shipments" ? "bg-blue-500 text-white" : "bg-gray-200"}` }, "Отгрузки")
+            React.createElement("button", {
+              onClick: () => setActiveTab("inventory"),
+              className: `p-2 mr-2 ${activeTab === "inventory" ? "bg-blue-500 text-white" : "bg-gray-200"}`
+            }, "Остатки"),
+            React.createElement("button", {
+              onClick: () => setActiveTab("shipments"),
+              className: `p-2 ${activeTab === "shipments" ? "bg-blue-500 text-white" : "bg-gray-200"}`
+            }, "Отгрузки")
           ),
 
-          // === Остатки ===
           activeTab === "inventory" && React.createElement("div", null,
             React.createElement("div", { className: "flex items-center gap-3 mb-4" },
               React.createElement("label", null, "Фильтр по продукции:"),
@@ -230,6 +18,7 @@
               ),
               React.createElement("button", { onClick: exportInventory, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "⬇️ Экспорт")
             ),
+
             userRole === "admin" && React.createElement("form", { onSubmit: handleStockSubmit, className: "flex flex-wrap gap-2 mb-6" },
               React.createElement("input", { type: "date", value: newStock.date, onChange: e => setNewStock(s => ({ ...s, date: e.target.value })), className: "border p-2 rounded" }),
               React.createElement("input", { list: "productList", placeholder: "Продукция", value: newStock.product, onChange: e => setNewStock(s => ({ ...s, product: e.target.value, lot: "" })), className: "border p-2 rounded" }),
@@ -239,6 +28,7 @@
               React.createElement("input", { type: "date", placeholder: "Срок годности", value: newStock.expiryDate, onChange: e => setNewStock(s => ({ ...s, expiryDate: e.target.value })), className: "border p-2 rounded" }),
               React.createElement("button", { type: "submit", className: "bg-green-500 text-white py-2 px-4 rounded" }, "Добавить")
             ),
+
             Object.entries(groupedInventory).map(([product, items]) =>
               React.createElement("div", { key: product, className: "mb-6" },
                 React.createElement("h2", { className: "text-lg font-semibold mb-2" }, product),
@@ -258,17 +48,16 @@
                         React.createElement("td", { className: "border p-2" }, it.quantity),
                         React.createElement("td", { className: "border p-2" }, it.expiryDate),
                         React.createElement("td", { className: "border p-2" },
-                          userRole === "admin"
-                            ? React.createElement("button", { onClick: () => deleteInventory(it.id), className: "text-red-500" }, "🗑️")
-                            : "-"
+                          userRole === "admin" &&
+                            React.createElement("span", null,
+                              React.createElement("button", { onClick: () => deleteInventory(it.id), className: "text-red-500" }, "🗑️")
+                            )
                         )
                       )
                     ),
                     React.createElement("tr", { className: "font-bold bg-gray-50" },
                       React.createElement("td", { className: "border p-2", colSpan: 2 }, "Итого по продукции"),
-                      React.createElement("td", { className: "border p-2" },
-                        items.reduce((sum, i) => sum + Number(i.quantity || 0), 0)
-                      ),
+                      React.createElement("td", { className: "border p-2" }, items.reduce((sum, i) => sum + Number(i.quantity || 0), 0)),
                       React.createElement("td", { className: "border p-2", colSpan: 2 })
                     )
                   )
@@ -277,9 +66,8 @@
             )
           ),
 
-          // === Отгрузки ===
           activeTab === "shipments" && React.createElement("div", null,
-            React.createElement("div", { className: "flex flex-wrap gap-2 mb-4 items-end" },
+            React.createElement("div", { className: "flex flex-wrap gap-3 mb-3 items-end" },
               React.createElement("div", null,
                 React.createElement("label", null, "От даты:"),
                 React.createElement("input", { type: "date", value: filterDateFrom, onChange: e => setFilterDateFrom(e.target.value), className: "border p-2 rounded" })
@@ -311,6 +99,7 @@
               ),
               React.createElement("button", { onClick: exportShipments, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "⬇️ Экспорт")
             ),
+
             userRole === "admin" && React.createElement("form", { onSubmit: handleShipmentSubmit, className: "flex flex-wrap gap-2 mb-4" },
               React.createElement("input", { type: "date", value: newShipment.date, onChange: e => setNewShipment(s => ({ ...s, date: e.target.value })), className: "border p-2 rounded" }),
               React.createElement("input", { list: "clientList", placeholder: "Клиент", value: newShipment.client, onChange: e => setNewShipment(s => ({ ...s, client: e.target.value })), className: "border p-2 rounded" }),
@@ -324,13 +113,32 @@
               React.createElement("datalist", { id: "managerList" }, managers.map((m, i) => React.createElement("option", { key: i, value: m }))),
               React.createElement("button", { type: "submit", className: "bg-green-500 text-white py-2 px-4 rounded" }, "Добавить")
             ),
+
             filteredShipments.map(s =>
-              React.createElement("div", { key: s.id, className: "bg-white rounded shadow p-3 mb-2 flex justify-between" },
-                React.createElement("div", null, `${s.date} — ${s.client} — ${s.product} (${s.lot})`),
-                React.createElement("div", null, `${s.quantity} шт. — ${s.manager}`,
-                  userRole === "admin" && React.createElement("button", { onClick: () => deleteShipment(s.id), className: "text-red-500 ml-2" }, "🗑️")
-                )
-              )
+              editingShipmentId === s.id
+                ? React.createElement("div", { key: s.id, className: "bg-white rounded shadow p-3 mb-2" },
+                    React.createElement("div", { className: "flex flex-wrap gap-2" },
+                      React.createElement("input", { type: "date", value: editingShipmentData.date || "", onChange: e => setEditingShipmentData(d => ({ ...d, date: e.target.value })), className: "border p-2 rounded" }),
+                      React.createElement("input", { value: editingShipmentData.client || "", onChange: e => setEditingShipmentData(d => ({ ...d, client: e.target.value })), className: "border p-2 rounded", placeholder: "Клиент" }),
+                      React.createElement("input", { value: editingShipmentData.product || "", onChange: e => setEditingShipmentData(d => ({ ...d, product: e.target.value })), className: "border p-2 rounded", placeholder: "Продукция" }),
+                      React.createElement("input", { value: editingShipmentData.lot || "", onChange: e => setEditingShipmentData(d => ({ ...d, lot: e.target.value })), className: "border p-2 rounded", placeholder: "Лот" }),
+                      React.createElement("input", { type: "number", value: editingShipmentData.quantity || "", onChange: e => setEditingShipmentData(d => ({ ...d, quantity: e.target.value })), className: "border p-2 rounded", placeholder: "Количество" }),
+                      React.createElement("input", { value: editingShipmentData.manager || "", onChange: e => setEditingShipmentData(d => ({ ...d, manager: e.target.value })), className: "border p-2 rounded", placeholder: "Менеджер" }),
+                      React.createElement("div", { className: "ml-auto" },
+                        React.createElement("button", { onClick: saveEditShipment, className: "bg-green-500 text-white px-3 py-1 rounded mr-2" }, "💾"),
+                        React.createElement("button", { onClick: cancelEditShipment, className: "bg-gray-400 text-white px-3 py-1 rounded" }, "✖")
+                      )
+                    )
+                  )
+                : React.createElement("div", { key: s.id, className: "bg-white rounded shadow p-3 mb-2 flex justify-between" },
+                    React.createElement("div", null, `${s.date} — ${s.client} — ${s.product} (${s.lot})`),
+                    React.createElement("div", null, `${s.quantity} шт. — ${s.manager}`,
+                      userRole === "admin" && React.createElement("span", null,
+                        React.createElement("button", { onClick: () => startEditShipment(s), className: "text-blue-500 mr-2" }, "✏️"),
+                        React.createElement("button", { onClick: () => deleteShipment(s.id), className: "text-red-500" }, "🗑️")
+                      )
+                    )
+                  )
             )
           )
         )
