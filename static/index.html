@@ -221,14 +221,30 @@
             return acc;
           }, {});
 
-        // --- delete
+        // --- delete  (исправлено)
         const deleteInventory = (id) => {
           if (!confirm("Удалить остаток?")) return;
           setInventory(prev => prev.filter(i => i.id !== id));
+          // сразу сохраняем на сервер
+          if (userRole === "admin") {
+            fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ inventory: inventory.filter(i => i.id !== id), shipments })
+            }).catch(e => console.error("Ошибка сохранения после удаления:", e));
+          }
         };
         const deleteShipment = (id) => {
           if (!confirm("Удалить отгрузку?")) return;
           setShipments(prev => prev.filter(s => s.id !== id));
+          // сразу сохраняем на сервер
+          if (userRole === "admin") {
+            fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ inventory, shipments: shipments.filter(s => s.id !== id) })
+            }).catch(e => console.error("Ошибка сохранения после удаления:", e));
+          }
         };
 
         // --- editing inventory inline
@@ -327,7 +343,7 @@
                 React.createElement("option", { value: "Все продукты" }, "Все продукты"),
                 products.map(p => React.createElement("option", { key: p, value: p }, p))
               ),
-              React.createElement("button", { onClick: exportInventory, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "⬇️ Экспорт")
+              React.createElement("button", { onClick: exportInventory, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "Экспорт")
             ),
 
             userRole === "admin" && React.createElement("form", { onSubmit: handleStockSubmit, className: "flex flex-wrap gap-2 mb-6" },
@@ -360,8 +376,8 @@
                               React.createElement("td", { className: "border p-2" }, React.createElement("input", { type: "number", value: editingInventoryData.quantity || "", onChange: e => setEditingInventoryData(d => ({ ...d, quantity: e.target.value })), className: "border p-1 rounded w-full" })),
                               React.createElement("td", { className: "border p-2" }, React.createElement("input", { type: "date", value: editingInventoryData.expiryDate || "", onChange: e => setEditingInventoryData(d => ({ ...d, expiryDate: e.target.value })), className: "border p-1 rounded w-full" })),
                               React.createElement("td", { className: "border p-2" },
-                                React.createElement("button", { onClick: saveEditInventory, className: "bg-green-500 text-white px-2 py-1 rounded mr-2" }, "💾"),
-                                React.createElement("button", { onClick: cancelEditInventory, className: "bg-gray-400 text-white px-2 py-1 rounded" }, "✖")
+                                React.createElement("button", { onClick: saveEditInventory, className: "bg-green-500 text-white px-2 py-1 rounded mr-2" }, "Сохранить"),
+                                React.createElement("button", { onClick: cancelEditInventory, className: "bg-gray-400 text-white px-2 py-1 rounded" }, "Отмена")
                               )
                             )
                           : React.createElement("tr", { key: it.id },
@@ -371,8 +387,8 @@
                               React.createElement("td", { className: "border p-2" }, it.expiryDate),
                               React.createElement("td", { className: "border p-2" },
                                 userRole === "admin" ? React.createElement("span", null,
-                                  React.createElement("button", { onClick: () => startEditInventory(it), className: "text-blue-500 mr-2" }, "✏️"),
-                                  React.createElement("button", { onClick: () => deleteInventory(it.id), className: "text-red-500" }, "🗑️")
+                                  React.createElement("button", { onClick: () => startEditInventory(it), className: "text-blue-500 mr-2" }, "Редактировать"),
+                                  React.createElement("button", { onClick: () => deleteInventory(it.id), className: "text-red-500" }, "Удалить")
                                 ) : React.createElement("span", null, "-")
                               )
                             )
@@ -406,7 +422,7 @@
                 React.createElement("option", { value: "Все менеджеры" }, "Все менеджеры"),
                 managers.map(m => React.createElement("option", { key: m, value: m }, m))
               )),
-              React.createElement("button", { onClick: exportShipments, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "⬇️ Экспорт")
+              React.createElement("button", { onClick: exportShipments, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "Экспорт")
             ),
 
             // add form
@@ -435,8 +451,8 @@
                         React.createElement("input", { type: "number", value: editingShipmentData.quantity || "", onChange: e => setEditingShipmentData(d => ({ ...d, quantity: e.target.value })), className: "border p-2 rounded", placeholder: "Количество" }),
                         React.createElement("input", { value: editingShipmentData.manager || "", onChange: e => setEditingShipmentData(d => ({ ...d, manager: e.target.value })), className: "border p-2 rounded", placeholder: "Менеджер" }),
                         React.createElement("div", { className: "ml-auto" },
-                          React.createElement("button", { onClick: saveEditShipment, className: "bg-green-500 text-white px-3 py-1 rounded mr-2" }, "💾"),
-                          React.createElement("button", { onClick: cancelEditShipment, className: "bg-gray-400 text-white px-3 py-1 rounded" }, "✖")
+                          React.createElement("button", { onClick: saveEditShipment, className: "bg-green-500 text-white px-3 py-1 rounded mr-2" }, "Сохранить"),
+                          React.createElement("button", { onClick: cancelEditShipment, className: "bg-gray-400 text-white px-3 py-1 rounded" }, "Отмена")
                         )
                       )
                     )
@@ -444,8 +460,8 @@
                       React.createElement("div", null, `${s.date} — ${s.client} — ${s.product} (${s.lot})`),
                       React.createElement("div", null, `${s.quantity} шт. — ${s.manager}`,
                         userRole === "admin" && React.createElement("span", null,
-                          React.createElement("button", { onClick: () => startEditShipment(s), className: "text-blue-500 mr-2" }, "✏️"),
-                          React.createElement("button", { onClick: () => deleteShipment(s.id), className: "text-red-500" }, "🗑️")
+                          React.createElement("button", { onClick: () => startEditShipment(s), className: "text-blue-500 mr-2" }, "Редактировать"),
+                          React.createElement("button", { onClick: () => deleteShipment(s.id), className: "text-red-500" }, "Удалить")
                         )
                       )
                     )
