@@ -18,7 +18,7 @@
       const { useState, useEffect, useRef } = React;
 
       function App() {
-        // --- state
+        // state
         const [user, setUser] = useState(localStorage.getItem("wl_user") || null);
         const [userRole, setUserRole] = useState(localStorage.getItem("wl_role") || null);
         const [loginName, setLoginName] = useState("");
@@ -78,7 +78,22 @@
           { username: "Дмитрий", password: "12345678dd" }
         ];
 
-        // --- load companies
+        // helper: immediate save to server
+        const saveNow = async (inv = inventory, shp = shipments) => {
+          if (!user) return;
+          try {
+            await fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ inventory: inv, shipments: shp })
+            });
+            // optional: console.log("Saved immediately");
+          } catch (e) {
+            console.error("Ошибка saveNow:", e);
+          }
+        };
+
+        // load companies
         useEffect(() => {
           fetch(`${API_ORIGIN}/api/companies`)
             .then(r => r.json())
@@ -89,7 +104,7 @@
             .catch(() => setCompanies(["БТТ", "ЛИ"]));
         }, []);
 
-        // --- load data when user & company set
+        // load data when user & company set
         useEffect(() => {
           if (!user) return;
           setLoading(true);
@@ -114,7 +129,7 @@
             .finally(() => setLoading(false));
         }, [user, company]);
 
-        // --- autosave (admin only)
+        // autosave (admin only)
         useEffect(() => {
           if (!user || userRole !== "admin") return;
           if (saveTimeout.current) clearTimeout(saveTimeout.current);
@@ -128,7 +143,7 @@
           return () => clearTimeout(saveTimeout.current);
         }, [inventory, shipments, user, userRole, company]);
 
-        // --- login
+        // login
         const handleLogin = (e) => {
           e && e.preventDefault();
           const admin = admins.find(a => a.username.toLowerCase() === loginName.toLowerCase() && a.password === loginPass);
@@ -143,7 +158,7 @@
           localStorage.setItem("wl_role", role);
         };
 
-        // --- logout
+        // logout
         const logout = () => {
           localStorage.removeItem("wl_user");
           localStorage.removeItem("wl_role");
@@ -151,7 +166,7 @@
           setUserRole(null);
         };
 
-        // --- add stock
+        // add stock
         const handleStockSubmit = (e) => {
           e && e.preventDefault();
           if (userRole !== "admin") return;
@@ -161,17 +176,21 @@
           }
           const existing = inventory.find(i => i.product === newStock.product && i.lot === newStock.lot && i.company === company);
           if (existing) {
-            setInventory(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: Number(i.quantity) + Number(newStock.quantity) } : i));
+            const newInv = inventory.map(i => i.id === existing.id ? { ...i, quantity: Number(i.quantity) + Number(newStock.quantity) } : i);
+            setInventory(newInv);
+            saveNow(newInv, shipments);
           } else {
             const id = `inv_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
-            setInventory(prev => [...prev, { ...newStock, id, company, quantity: Number(newStock.quantity) }]);
+            const newItem = { ...newStock, id, company, quantity: Number(newStock.quantity) };
+            const newInv = [...inventory, newItem];
+            setInventory(newInv);
+            saveNow(newInv, shipments);
           }
-          // update product list
           setProducts(prev => (newStock.product ? Array.from(new Set([...prev, newStock.product])) : prev));
           setNewStock({ ...newStock, product: "", lot: "", quantity: "", expiryDate: "" });
         };
 
-        // --- add shipment
+        // add shipment
         const handleShipmentSubmit = (e) => {
           e && e.preventDefault();
           if (userRole !== "admin") return;
@@ -185,8 +204,13 @@
             return;
           }
           const id = `ship_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
-          setShipments(prev => [...prev, { ...newShipment, id, company, quantity: Number(newShipment.quantity) }]);
-          setInventory(prev => prev.map(i => (i.product === newShipment.product && i.lot === newShipment.lot && i.company === company) ? { ...i, quantity: i.quantity - Number(newShipment.quantity) } : i));
+          const newShip = { ...newShipment, id, company, quantity: Number(newShipment.quantity) };
+          const newShips = [...shipments, newShip];
+          const newInv = inventory.map(i => (i.product === newShipment.product && i.lot === newShipment.lot && i.company === company) ? { ...i, quantity: i.quantity - Number(newShipment.quantity) } : i);
+          setShipments(newShips);
+          setInventory(newInv);
+          // immediate save
+          saveNow(newInv, newShips);
           // update lists
           setClients(prev => (newShipment.client ? Array.from(new Set([...prev, newShipment.client])) : prev));
           setManagers(prev => (newShipment.manager ? Array.from(new Set([...prev, newShipment.manager])) : prev));
@@ -194,7 +218,7 @@
           setNewShipment({ ...newShipment, client: "", product: "", lot: "", quantity: "", manager: "" });
         };
 
-        // --- export helpers
+        // export
         const exportInventory = () => {
           const data = inventory.filter(i => i.company === company).map(i => ({ Дата: i.date, Продукция: i.product, Лот: i.lot, Количество: i.quantity, "Срок годности": i.expiryDate }));
           const ws = XLSX.utils.json_to_sheet(data);
@@ -212,7 +236,7 @@
           saveAs(new Blob([wbout], { type: "application/octet-stream" }), `Отгрузки_${company}.xlsx`);
         };
 
-        // --- grouped inventory by product (for display with sums)
+        // grouped inventory by product
         const groupedInventory = inventory
           .filter(i => i.company === company && (filterProduct === "Все продукты" || i.product === filterProduct))
           .reduce((acc, it) => {
@@ -221,33 +245,21 @@
             return acc;
           }, {});
 
-        // --- delete  (исправлено)
+        // delete (immediate save)
         const deleteInventory = (id) => {
           if (!confirm("Удалить остаток?")) return;
-          setInventory(prev => prev.filter(i => i.id !== id));
-          // сразу сохраняем на сервер
-          if (userRole === "admin") {
-            fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ inventory: inventory.filter(i => i.id !== id), shipments })
-            }).catch(e => console.error("Ошибка сохранения после удаления:", e));
-          }
+          const newInv = inventory.filter(i => i.id !== id);
+          setInventory(newInv);
+          saveNow(newInv, shipments);
         };
         const deleteShipment = (id) => {
           if (!confirm("Удалить отгрузку?")) return;
-          setShipments(prev => prev.filter(s => s.id !== id));
-          // сразу сохраняем на сервер
-          if (userRole === "admin") {
-            fetch(`${API_ORIGIN}/api/data/${encodeURIComponent(user)}/${encodeURIComponent(company)}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ inventory, shipments: shipments.filter(s => s.id !== id) })
-            }).catch(e => console.error("Ошибка сохранения после удаления:", e));
-          }
+          const newShips = shipments.filter(s => s.id !== id);
+          setShipments(newShips);
+          saveNow(inventory, newShips);
         };
 
-        // --- editing inventory inline
+        // editing inventory inline
         const startEditInventory = (row) => {
           setEditingInventoryId(row.id);
           setEditingInventoryData({ ...row, quantity: String(row.quantity) });
@@ -258,14 +270,15 @@
         };
         const saveEditInventory = () => {
           if (!editingInventoryData) return;
-          setInventory(prev => prev.map(i => i.id === editingInventoryData.id ? ({ ...editingInventoryData, quantity: Number(editingInventoryData.quantity) }) : i));
-          // update products list
+          const newInv = inventory.map(i => i.id === editingInventoryData.id ? ({ ...editingInventoryData, quantity: Number(editingInventoryData.quantity) }) : i);
+          setInventory(newInv);
           setProducts(prev => (editingInventoryData.product ? Array.from(new Set([...prev, editingInventoryData.product])) : prev));
           setEditingInventoryId(null);
           setEditingInventoryData(null);
+          saveNow(newInv, shipments);
         };
 
-        // --- editing shipment inline
+        // editing shipment inline
         const startEditShipment = (row) => {
           setEditingShipmentId(row.id);
           setEditingShipmentData({ ...row, quantity: String(row.quantity) });
@@ -276,16 +289,17 @@
         };
         const saveEditShipment = () => {
           if (!editingShipmentData) return;
-          // if quantity changed we don't adjust stock history (simple model) — keep it local
-          setShipments(prev => prev.map(s => s.id === editingShipmentData.id ? ({ ...editingShipmentData, quantity: Number(editingShipmentData.quantity) }) : s));
+          const newShips = shipments.map(s => s.id === editingShipmentData.id ? ({ ...editingShipmentData, quantity: Number(editingShipmentData.quantity) }) : s);
+          setShipments(newShips);
           setClients(prev => editingShipmentData.client ? Array.from(new Set([...prev, editingShipmentData.client])) : prev);
           setManagers(prev => editingShipmentData.manager ? Array.from(new Set([...prev, editingShipmentData.manager])) : prev);
           setProducts(prev => editingShipmentData.product ? Array.from(new Set([...prev, editingShipmentData.product])) : prev);
           setEditingShipmentId(null);
           setEditingShipmentData(null);
+          saveNow(inventory, newShips);
         };
 
-        // --- filter shipments
+        // filter shipments
         const filteredShipments = shipments
           .filter(s => s.company === company)
           .filter(s => !filterFrom || s.date >= filterFrom)
@@ -294,15 +308,14 @@
           .filter(s => filterClient === "Все клиенты" || s.client === filterClient)
           .filter(s => filterManager === "Все менеджеры" || s.manager === filterManager);
 
-        // --- helper: lots for a product
+        // helper: lots for a product
         const productLots = (prod) => inventory.filter(i => i.product === prod && i.company === company).map(i => i.lot);
 
-        // --- side effects to persist company selection locally
+        // persist selected company
         useEffect(() => {
           localStorage.setItem("wl_company", company);
         }, [company]);
 
-        // --- UI
         if (!user) {
           return React.createElement("div", { className: "max-w-md mx-auto p-4" },
             React.createElement("h1", { className: "text-2xl font-bold mb-4" }, "Вход в систему"),
@@ -343,7 +356,7 @@
                 React.createElement("option", { value: "Все продукты" }, "Все продукты"),
                 products.map(p => React.createElement("option", { key: p, value: p }, p))
               ),
-              React.createElement("button", { onClick: exportInventory, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "Экспорт")
+              React.createElement("button", { onClick: exportInventory, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "⬇️ Экспорт")
             ),
 
             userRole === "admin" && React.createElement("form", { onSubmit: handleStockSubmit, className: "flex flex-wrap gap-2 mb-6" },
@@ -355,7 +368,7 @@
               React.createElement("button", { type: "submit", className: "bg-green-500 text-white py-2 px-4 rounded" }, "Добавить")
             ),
 
-            // grouped tables with edit/delete rows and totals
+            // grouped tables
             Object.entries(groupedInventory).length === 0
               ? React.createElement("div", { className: "text-gray-500" }, loading ? "Загрузка..." : "Нет остатков")
               : Object.entries(groupedInventory).map(([prod, items]) =>
@@ -376,8 +389,8 @@
                               React.createElement("td", { className: "border p-2" }, React.createElement("input", { type: "number", value: editingInventoryData.quantity || "", onChange: e => setEditingInventoryData(d => ({ ...d, quantity: e.target.value })), className: "border p-1 rounded w-full" })),
                               React.createElement("td", { className: "border p-2" }, React.createElement("input", { type: "date", value: editingInventoryData.expiryDate || "", onChange: e => setEditingInventoryData(d => ({ ...d, expiryDate: e.target.value })), className: "border p-1 rounded w-full" })),
                               React.createElement("td", { className: "border p-2" },
-                                React.createElement("button", { onClick: saveEditInventory, className: "bg-green-500 text-white px-2 py-1 rounded mr-2" }, "Сохранить"),
-                                React.createElement("button", { onClick: cancelEditInventory, className: "bg-gray-400 text-white px-2 py-1 rounded" }, "Отмена")
+                                React.createElement("button", { onClick: saveEditInventory, className: "bg-green-500 text-white px-2 py-1 rounded mr-2" }, "💾"),
+                                React.createElement("button", { onClick: cancelEditInventory, className: "bg-gray-400 text-white px-2 py-1 rounded" }, "✖")
                               )
                             )
                           : React.createElement("tr", { key: it.id },
@@ -387,8 +400,8 @@
                               React.createElement("td", { className: "border p-2" }, it.expiryDate),
                               React.createElement("td", { className: "border p-2" },
                                 userRole === "admin" ? React.createElement("span", null,
-                                  React.createElement("button", { onClick: () => startEditInventory(it), className: "text-blue-500 mr-2" }, "Редактировать"),
-                                  React.createElement("button", { onClick: () => deleteInventory(it.id), className: "text-red-500" }, "Удалить")
+                                  React.createElement("button", { onClick: () => startEditInventory(it), className: "text-blue-500 mr-2" }, "✏️"),
+                                  React.createElement("button", { onClick: () => deleteInventory(it.id), className: "text-red-500" }, "🗑️")
                                 ) : React.createElement("span", null, "-")
                               )
                             )
@@ -422,7 +435,7 @@
                 React.createElement("option", { value: "Все менеджеры" }, "Все менеджеры"),
                 managers.map(m => React.createElement("option", { key: m, value: m }, m))
               )),
-              React.createElement("button", { onClick: exportShipments, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "Экспорт")
+              React.createElement("button", { onClick: exportShipments, className: "bg-green-600 text-white px-4 py-2 rounded ml-auto" }, "⬇️ Экспорт")
             ),
 
             // add form
@@ -451,8 +464,8 @@
                         React.createElement("input", { type: "number", value: editingShipmentData.quantity || "", onChange: e => setEditingShipmentData(d => ({ ...d, quantity: e.target.value })), className: "border p-2 rounded", placeholder: "Количество" }),
                         React.createElement("input", { value: editingShipmentData.manager || "", onChange: e => setEditingShipmentData(d => ({ ...d, manager: e.target.value })), className: "border p-2 rounded", placeholder: "Менеджер" }),
                         React.createElement("div", { className: "ml-auto" },
-                          React.createElement("button", { onClick: saveEditShipment, className: "bg-green-500 text-white px-3 py-1 rounded mr-2" }, "Сохранить"),
-                          React.createElement("button", { onClick: cancelEditShipment, className: "bg-gray-400 text-white px-3 py-1 rounded" }, "Отмена")
+                          React.createElement("button", { onClick: saveEditShipment, className: "bg-green-500 text-white px-3 py-1 rounded mr-2" }, "💾"),
+                          React.createElement("button", { onClick: cancelEditShipment, className: "bg-gray-400 text-white px-3 py-1 rounded" }, "✖")
                         )
                       )
                     )
@@ -460,8 +473,8 @@
                       React.createElement("div", null, `${s.date} — ${s.client} — ${s.product} (${s.lot})`),
                       React.createElement("div", null, `${s.quantity} шт. — ${s.manager}`,
                         userRole === "admin" && React.createElement("span", null,
-                          React.createElement("button", { onClick: () => startEditShipment(s), className: "text-blue-500 mr-2" }, "Редактировать"),
-                          React.createElement("button", { onClick: () => deleteShipment(s.id), className: "text-red-500" }, "Удалить")
+                          React.createElement("button", { onClick: () => startEditShipment(s), className: "text-blue-500 mr-2" }, "✏️"),
+                          React.createElement("button", { onClick: () => deleteShipment(s.id), className: "text-red-500" }, "🗑️")
                         )
                       )
                     )
