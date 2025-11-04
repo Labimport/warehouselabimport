@@ -1,194 +1,126 @@
-import os
 from flask import Flask, jsonify, request, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from sqlalchemy import text
+import os
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 CORS(app)
 
-# === Настройки базы данных ===
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///warehouse.db")
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+# База данных SQLite
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///warehouse.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# === Проверка и исправление структуры базы ===
-with app.app_context():
-    try:
-        conn = db.engine.connect()
-        # Добавляем недостающие поля безопасно (если их нет)
-        conn.execute(text('ALTER TABLE inventory ADD COLUMN IF NOT EXISTS "user" VARCHAR;'))
-        conn.execute(text('ALTER TABLE shipment ADD COLUMN IF NOT EXISTS "user" VARCHAR;'))
-        conn.commit()
-        print("✅ Проверка структуры БД: поля user добавлены (или уже существовали).")
-    except Exception as e:
-        print("⚠️ Ошибка при проверке/обновлении структуры БД:", e)
-    finally:
-        conn.close()
-
-# === Модели ===
+# ---- МОДЕЛИ ----
 class Inventory(db.Model):
-    id = db.Column(db.String, primary_key=True)
-    user = db.Column(db.String)
-    company = db.Column(db.String)
-    date = db.Column(db.String)
-    product = db.Column(db.String)
-    lot = db.Column(db.String)
+    id = db.Column(db.Integer, primary_key=True)
+    user = db.Column(db.String(120))
+    company = db.Column(db.String(120))
+    date = db.Column(db.String(20))
+    product = db.Column(db.String(120))
+    lot = db.Column(db.String(120))
     quantity = db.Column(db.Float)
-    expiryDate = db.Column(db.String)
+    expiryDate = db.Column(db.String(20))
 
 class Shipment(db.Model):
-    id = db.Column(db.String, primary_key=True)
-    user = db.Column(db.String)
-    company = db.Column(db.String)
-    date = db.Column(db.String)
-    client = db.Column(db.String)
-    product = db.Column(db.String)
-    lot = db.Column(db.String)
+    id = db.Column(db.Integer, primary_key=True)
+    user = db.Column(db.String(120))
+    company = db.Column(db.String(120))
+    date = db.Column(db.String(20))
+    client = db.Column(db.String(120))
+    product = db.Column(db.String(120))
+    lot = db.Column(db.String(120))
     quantity = db.Column(db.Float)
-    manager = db.Column(db.String)
+    manager = db.Column(db.String(120))
 
-# === Создание таблиц (если их нет) ===
 with app.app_context():
     db.create_all()
-print("✅ Таблицы созданы или уже существуют")
+    print("✅ Проверка структуры БД: всё в порядке")
 
-# === Получение списка компаний ===
-@app.route("/api/companies")
+# ---- РОУТЫ ----
+@app.route('/')
+def index():
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/api/companies')
 def get_companies():
-    companies = sorted(list({i.company for i in Inventory.query.all()} | {"БТТ", "ЛИ"}))
-    print(f"📊 Компании: {companies}")
-    return jsonify(companies)
+    companies = db.session.query(Inventory.company).distinct().all()
+    result = sorted(set(c[0] for c in companies if c[0])) or ["БТТ", "ЛИ"]
+    print("📊 Компании:", result)
+    return jsonify(result)
 
-# === Получение всех данных ===
-@app.route("/api/data/<user>/<company>", methods=["GET"])
+@app.route('/api/data/<user>/<company>', methods=['GET'])
 def get_data(user, company):
-    inventory = Inventory.query.filter_by(company=company).all()
-    shipments = Shipment.query.filter_by(company=company).all()
-    print(f"📦 Загружены данные {company}: {len(inventory)} остатков, {len(shipments)} отгрузок")
-
-    products = sorted({i.product for i in inventory if i.product})
-    lots_by_product = {p: sorted({i.lot for i in inventory if i.product == p and i.lot}) for p in products}
-    clients = sorted({s.client for s in shipments if s.client})
-    managers = sorted({s.manager for s in shipments if s.manager})
-
+    inventory = Inventory.query.filter_by(user=user, company=company).all()
+    shipments = Shipment.query.filter_by(user=user, company=company).all()
     return jsonify({
-        "inventory": [
-            {
-                "id": i.id,
-                "user": i.user,
-                "company": i.company,
-                "date": i.date,
-                "product": i.product,
-                "lot": i.lot,
-                "quantity": i.quantity,
-                "expiryDate": i.expiryDate
-            } for i in inventory
-        ],
-        "shipments": [
-            {
-                "id": s.id,
-                "user": s.user,
-                "company": s.company,
-                "date": s.date,
-                "client": s.client,
-                "product": s.product,
-                "lot": s.lot,
-                "quantity": s.quantity,
-                "manager": s.manager
-            } for s in shipments
-        ],
-        "autocomplete": {
-            "products": products,
-            "lots": lots_by_product,
-            "clients": clients,
-            "managers": managers
-        }
+        "inventory": [vars(i) for i in inventory],
+        "shipments": [vars(s) for s in shipments]
     })
 
-# === Сохранение данных ===
-@app.route("/api/data/<user>/<company>", methods=["POST"])
+@app.route('/api/data/<user>/<company>', methods=['POST'])
 def save_data(user, company):
-    try:
-        payload = request.json or {}
-        inventory_data = payload.get("inventory", [])
-        shipments_data = payload.get("shipments", [])
+    data = request.json
+    inventory = data.get('inventory', [])
+    shipments = data.get('shipments', [])
 
-        print(f"💾 Сохранение: {company}, {len(inventory_data)} остатков, {len(shipments_data)} отгрузок")
+    Inventory.query.filter_by(user=user, company=company).delete()
+    Shipment.query.filter_by(user=user, company=company).delete()
 
-        # Остатки
-        for item in inventory_data:
-            existing = Inventory.query.filter_by(id=item["id"]).first()
-            if existing:
-                existing.date = item["date"]
-                existing.product = item["product"]
-                existing.lot = item["lot"]
-                existing.quantity = item["quantity"]
-                existing.expiryDate = item.get("expiryDate")
-                existing.user = user
-                existing.company = company
-            else:
-                db.session.add(Inventory(
-                    id=item["id"],
-                    user=user,
-                    company=company,
-                    date=item["date"],
-                    product=item["product"],
-                    lot=item["lot"],
-                    quantity=item["quantity"],
-                    expiryDate=item.get("expiryDate")
-                ))
+    for i in inventory:
+        db.session.add(Inventory(
+            user=user, company=company, date=i.get("date"),
+            product=i.get("product"), lot=i.get("lot"),
+            quantity=i.get("quantity"), expiryDate=i.get("expiryDate")
+        ))
 
-        # Отгрузки
-        for s in shipments_data:
-            existing = Shipment.query.filter_by(id=s["id"]).first()
-            if existing:
-                existing.date = s["date"]
-                existing.client = s["client"]
-                existing.product = s["product"]
-                existing.lot = s["lot"]
-                existing.quantity = s["quantity"]
-                existing.manager = s["manager"]
-                existing.user = user
-                existing.company = company
-            else:
-                db.session.add(Shipment(
-                    id=s["id"],
-                    user=user,
-                    company=company,
-                    date=s["date"],
-                    client=s["client"],
-                    product=s["product"],
-                    lot=s["lot"],
-                    quantity=s["quantity"],
-                    manager=s["manager"]
-                ))
+    for s in shipments:
+        db.session.add(Shipment(
+            user=user, company=company, date=s.get("date"),
+            client=s.get("client"), product=s.get("product"),
+            lot=s.get("lot"), quantity=s.get("quantity"),
+            manager=s.get("manager")
+        ))
 
-        db.session.commit()
-        print("✅ Данные сохранены успешно")
-        return jsonify({"status": "ok"}), 200
+    db.session.commit()
+    print(f"💾 Сохранение: {company}, {len(inventory)} остатков, {len(shipments)} отгрузок")
+    return jsonify({"status": "ok"})
 
-    except Exception as e:
-        print("❌ Ошибка при сохранении:", e)
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+# ---- СИНХРОНИЗАЦИЯ ОТГРУЗОК ----
+@app.route('/api/transfer', methods=['POST'])
+def transfer_between_companies():
+    data = request.json
+    from_company = data.get("from")
+    to_company = data.get("to")
+    shipment = data.get("shipment")
 
-# === Главная страница ===
-@app.route("/")
-def index():
-    return send_from_directory("static", "index.html")
+    if not all([from_company, to_company, shipment]):
+        return jsonify({"error": "Недостаточно данных"}), 400
 
-# === Статические файлы ===
-@app.route("/<path:path>")
-def static_files(path):
-    static_dir = os.path.join(os.getcwd(), "static")
-    if os.path.exists(os.path.join(static_dir, path)):
-        return send_from_directory(static_dir, path)
-    return "Not Found", 404
+    product = shipment.get("product")
+    lot = shipment.get("lot")
+    qty = float(shipment.get("quantity") or 0)
+    date = shipment.get("date")
+    expiry = shipment.get("expiryDate", "")
+    user = shipment.get("user", "system")
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000, debug=True)
+    # 1️⃣ — Убавляем остаток у отправителя
+    inv_from = Inventory.query.filter_by(company=from_company, product=product, lot=lot).first()
+    if inv_from:
+        inv_from.quantity = max(inv_from.quantity - qty, 0)
+    else:
+        db.session.add(Inventory(user=user, company=from_company, date=date, product=product, lot=lot, quantity=-qty, expiryDate=expiry))
+
+    # 2️⃣ — Добавляем остаток у получателя
+    inv_to = Inventory.query.filter_by(company=to_company, product=product, lot=lot).first()
+    if inv_to:
+        inv_to.quantity += qty
+    else:
+        db.session.add(Inventory(user=user, company=to_company, date=date, product=product, lot=lot, quantity=qty, expiryDate=expiry))
+
+    db.session.commit()
+    print(f"🔁 Передача {qty} шт {product} ({lot}) от {from_company} к {to_company}")
+    return jsonify({"status": "ok"})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)
